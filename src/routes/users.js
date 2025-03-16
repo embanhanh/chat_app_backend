@@ -14,7 +14,7 @@ router.get("/search", auth, async (req, res) => {
     const users = await UserService.searchUsers(query, req.user._id);
     res.json(users);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -25,7 +25,7 @@ router.post("/fcm-token", auth, async (req, res) => {
     await UserService.updateFCMToken(req.user._id, token, device);
     res.json({ message: "FCM token updated" });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -56,7 +56,7 @@ router.post("/avatar", auth, upload.single("avatar"), async (req, res) => {
       avatar: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -66,7 +66,7 @@ router.post("/friend-request/:id", auth, async (req, res) => {
     await UserService.sendFriendRequest(req.user._id, req.params.id);
     res.json({ message: "Friend request sent" });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -76,7 +76,7 @@ router.post("/friend-request/:id/accept", auth, async (req, res) => {
     await UserService.acceptFriendRequest(req.user._id, req.params.id);
     res.json({ message: "Friend request accepted" });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -88,7 +88,7 @@ router.get("/friends", auth, async (req, res) => {
       .select("friends");
     res.json(user.friends);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -100,7 +100,7 @@ router.get("/friend-requests", auth, async (req, res) => {
       .select("friendRequests");
     res.json(user.friendRequests);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 

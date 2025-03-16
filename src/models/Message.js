@@ -1,5 +1,29 @@
 const mongoose = require("mongoose");
 
+const attachmentSchema = new mongoose.Schema({
+  filename: {
+    type: String,
+    required: true,
+  },
+  contentType: {
+    type: String,
+    enum: ["image", "video", "audio", "file"],
+    required: true,
+  },
+  mimeType: {
+    type: String,
+    required: true,
+  },
+  size: {
+    type: Number,
+    required: true,
+  },
+  url: {
+    type: String,
+    required: true,
+  },
+});
+
 const messageSchema = new mongoose.Schema(
   {
     sender: {
@@ -18,13 +42,10 @@ const messageSchema = new mongoose.Schema(
     },
     contentType: {
       type: String,
-      enum: ["text", "image", "video", "audio"],
+      enum: ["text", "media"],
       default: "text",
     },
-    mediaUrl: {
-      type: String,
-      default: "",
-    },
+    media: [attachmentSchema],
     readBy: [
       {
         user: {

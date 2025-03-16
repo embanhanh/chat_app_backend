@@ -23,7 +23,7 @@ class UserService {
   static async login(email, password) {
     const user = await User.findOne({ email });
     if (!user || !(await user.comparePassword(password))) {
-      throw new Error("Invalid login credentials");
+      throw { message: "Email hoặc mật khẩu không chính xác" };
     }
 
     const token = this.generateToken(user._id);
@@ -32,13 +32,17 @@ class UserService {
 
   // Update user's FCM token
   static async updateFCMToken(userId, token, device) {
-    const user = await User.findById(userId);
-    if (!user) throw new Error("User not found");
-
-    // Remove old token for this device if exists
-    user.fcmTokens = user.fcmTokens.filter((t) => t.device !== device);
-    user.fcmTokens.push({ token, device });
-    await user.save();
+    try {
+      const user = await User.findById(userId);
+      if (!user) throw { message: "Không tìm thấy người dùng" };
+      // Remove old token for this device if exists
+      user.fcmTokens = user.fcmTokens.filter((t) => t.device !== device);
+      user.fcmTokens.push({ token, device });
+      await user.save();
+    } catch (error) {
+      console.error("Error updating FCM token:", error.message);
+      throw error;
+    }
   }
 
   // Search users
@@ -92,15 +96,15 @@ class UserService {
     ]);
 
     if (!sender || !receiver) {
-      throw new Error("User not found");
+      throw { message: "Không tìm thấy người dùng" };
     }
 
     if (receiver.friendRequests.includes(senderId)) {
-      throw new Error("Friend request already sent");
+      throw { message: "Đã gửi lời mời kết bạn trước đó" };
     }
 
     if (receiver.friends.includes(senderId)) {
-      throw new Error("Users are already friends");
+      throw { message: "Các người dùng đã là bạn bè" };
     }
 
     receiver.friendRequests.push(senderId);
@@ -115,11 +119,11 @@ class UserService {
     ]);
 
     if (!user || !friend) {
-      throw new Error("User not found");
+      throw { message: "Không tìm thấy người dùng" };
     }
 
     if (!user.friendRequests.includes(friendId)) {
-      throw new Error("No friend request found");
+      throw { message: "Không tìm thấy lời mời kết bạn" };
     }
 
     // Remove friend request and add to friends list for both users

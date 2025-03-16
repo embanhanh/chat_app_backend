@@ -31,7 +31,7 @@ class ConversationService {
     // Verify all participants exist
     const users = await User.find({ _id: { $in: allParticipants } });
     if (users.length !== allParticipants.length) {
-      throw new Error("One or more users not found");
+      throw { message: "Một hoặc nhiều người dùng không tồn tại" };
     }
 
     const conversation = new Conversation({
@@ -60,7 +60,7 @@ class ConversationService {
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation || conversation.type !== "group") {
-      throw new Error("Group conversation not found");
+      throw { message: "Cuộc hội thoại nhóm không tồn tại" };
     }
 
     // Check if user is admin
@@ -69,7 +69,7 @@ class ConversationService {
     );
 
     if (!participant || participant.role !== "admin") {
-      throw new Error("Only admin can add participants");
+      throw { message: "Chỉ admin mới có thể thêm người dùng" };
     }
 
     // Check if user is already in the group
@@ -78,7 +78,7 @@ class ConversationService {
         (p) => p.user.toString() === newParticipantId.toString()
       )
     ) {
-      throw new Error("User is already in the group");
+      throw { message: "Người dùng đã nằm trong nhóm" };
     }
 
     conversation.participants.push({ user: newParticipantId });
@@ -90,7 +90,7 @@ class ConversationService {
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation || conversation.type !== "group") {
-      throw new Error("Group conversation not found");
+      throw { message: "Cuộc hội thoại nhóm không tồn tại" };
     }
 
     // Check if user is admin
@@ -99,7 +99,7 @@ class ConversationService {
     );
 
     if (!participant || participant.role !== "admin") {
-      throw new Error("Only admin can remove participants");
+      throw { message: "Chỉ admin mới có thể xóa người dùng" };
     }
 
     // Cannot remove the last admin
@@ -111,7 +111,7 @@ class ConversationService {
     );
 
     if (targetParticipant?.role === "admin" && adminCount === 1) {
-      throw new Error("Cannot remove the last admin");
+      throw { message: "Không thể xóa admin cuối cùng" };
     }
 
     conversation.participants = conversation.participants.filter(
@@ -126,11 +126,11 @@ class ConversationService {
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation) {
-      throw new Error("Conversation not found");
+      throw { message: "Cuộc hội thoại không tồn tại" };
     }
 
     if (conversation.type === "private") {
-      throw new Error("Cannot leave private conversation");
+      throw { message: "Không thể rời khỏi cuộc hội thoại riêng tư" };
     }
 
     // Check if user is the last admin
@@ -152,9 +152,7 @@ class ConversationService {
         if (newAdmin) {
           newAdmin.role = "admin";
         } else {
-          throw new Error(
-            "Cannot leave group as last admin with no other members"
-          );
+          throw { message: "Không thể rời khỏi nhóm là admin cuối cùng" };
         }
       }
     }

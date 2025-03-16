@@ -4,6 +4,7 @@ const auth = require("../middlewares/auth");
 const ConversationService = require("../services/ConversationService");
 
 // Get user's conversations
+// [GET] api/conversations
 router.get("/", auth, async (req, res) => {
   try {
     const conversations = await ConversationService.getUserConversations(
@@ -11,11 +12,12 @@ router.get("/", auth, async (req, res) => {
     );
     res.json(conversations);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
 // Create private conversation
+// [POST] api/conversations/private/:userId
 router.post("/private/:userId", auth, async (req, res) => {
   try {
     const conversation = await ConversationService.createPrivateConversation(
@@ -24,11 +26,12 @@ router.post("/private/:userId", auth, async (req, res) => {
     );
     res.status(201).json(conversation);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
 // Create group conversation
+// [POST] api/conversations/group
 router.post("/group", auth, async (req, res) => {
   try {
     const { name, participants } = req.body;
@@ -39,11 +42,12 @@ router.post("/group", auth, async (req, res) => {
     );
     res.status(201).json(conversation);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
 // Add participant to group
+// [POST] api/conversations/:id/participants
 router.post("/:id/participants", auth, async (req, res) => {
   try {
     const { userId } = req.body;
@@ -54,11 +58,12 @@ router.post("/:id/participants", auth, async (req, res) => {
     );
     res.json({ message: "Participant added successfully" });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
 // Remove participant from group
+// [DELETE] api/conversations/:id/participants/:userId
 router.delete("/:id/participants/:userId", auth, async (req, res) => {
   try {
     await ConversationService.removeParticipant(
@@ -68,17 +73,18 @@ router.delete("/:id/participants/:userId", auth, async (req, res) => {
     );
     res.json({ message: "Participant removed successfully" });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 
 // Leave conversation
+// [POST] api/conversations/:id/leave
 router.post("/:id/leave", auth, async (req, res) => {
   try {
     await ConversationService.leaveConversation(req.params.id, req.user._id);
     res.json({ message: "Left conversation successfully" });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ message: error.message });
   }
 });
 

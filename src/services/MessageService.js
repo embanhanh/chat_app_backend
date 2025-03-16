@@ -7,20 +7,37 @@ class MessageService {
   // Send a new message
   static async sendMessage(senderId, conversationId, messageData) {
     const conversation = await Conversation.findById(conversationId).populate(
-      "participants.user",
-      "fcmTokens"
+      "participants.user"
     );
 
     if (!conversation) {
-      throw new Error("Conversation not found");
+      throw { message: "Cuộc hội thoại không tồn tại" };
+    }
+
+    // Determine message content type if not provided
+    if (!messageData.contentType) {
+      if (
+        messageData.media &&
+        messageData.media.length > 0 &&
+        messageData.content === ""
+      ) {
+        // Single media message (legacy support)
+        messageData.contentType = "media";
+      } else {
+        // Plain text message and contentType remains "text" to support mixed content
+        messageData.contentType = "text";
+      }
     }
 
     // Create and save the message
     const message = new Message({
       sender: senderId,
       conversation: conversationId,
-      ...messageData,
+      content: messageData.content || "",
+      contentType: messageData.contentType,
+      media: messageData.media || [],
     });
+
     await message.save();
 
     // Update conversation's last message
@@ -40,6 +57,9 @@ class MessageService {
 
     await conversation.save();
 
+    // Populate sender information before publishing
+    await message.populate("sender", "username avatar");
+
     // Publish message to Redis for real-time delivery
     await redisClient.publish(
       "new_message",
@@ -49,18 +69,60 @@ class MessageService {
       })
     );
 
+    // Prepare notification content
+    let notificationContent = messageData.content || "";
+    if (messageData.media && messageData.media.length > 0) {
+      const attachmentCount = messageData.media.length;
+      const attachmentTypes = [
+        ...new Set(messageData.media.map((a) => a.contentType)),
+      ];
+
+      // Tạo thông báo dựa vào loại file đính kèm
+      if (attachmentTypes.length === 1) {
+        // Tất cả file cùng loại
+        const type = attachmentTypes[0];
+        if (type === "image") {
+          notificationContent =
+            attachmentCount > 1
+              ? `[${attachmentCount} hình ảnh]`
+              : `[Hình ảnh]`;
+        } else if (type === "video") {
+          notificationContent =
+            attachmentCount > 1 ? `[${attachmentCount} video]` : `[Video]`;
+        } else if (type === "audio") {
+          notificationContent =
+            attachmentCount > 1
+              ? `[${attachmentCount} file âm thanh]`
+              : `[File âm thanh]`;
+        } else {
+          notificationContent =
+            attachmentCount > 1
+              ? `[${attachmentCount} tệp đính kèm]`
+              : `[Tệp đính kèm]`;
+        }
+      } else {
+        // Nhiều loại file khác nhau
+        notificationContent = `[${attachmentCount} tệp đính kèm]`;
+      }
+
+      // Kết hợp với nội dung văn bản nếu có
+      if (messageData.content && messageData.content.trim().length > 0) {
+        notificationContent = `${messageData.content} ${notificationContent}`;
+      }
+    }
+
     // Send push notifications to offline users
     const offlineParticipants = conversation.participants.filter(
       (p) => p.user._id.toString() !== senderId.toString()
     );
 
     const notifications = offlineParticipants.flatMap((participant) =>
-      participant.user.fcmTokens.map(({ token }) => ({
+      (participant.user.fcmTokens || []).map(({ token }) => ({
         token,
         notification: {
           title:
-            conversation.type === "group" ? conversation.name : "New Message",
-          body: messageData.content.substring(0, 100),
+            conversation.type === "group" ? conversation.name : "Tin nhắn mới",
+          body: notificationContent.substring(0, 100),
         },
         data: {
           conversationId: conversation._id.toString(),
@@ -71,7 +133,11 @@ class MessageService {
     );
 
     if (notifications.length > 0) {
-      await admin.messaging().sendAll(notifications);
+      try {
+        await admin.messaging().sendAll(notifications);
+      } catch (error) {
+        console.error("Error sending push notifications:", error);
+      }
     }
 
     return message;
@@ -81,7 +147,7 @@ class MessageService {
   static async markAsRead(userId, conversationId) {
     const conversation = await Conversation.findById(conversationId);
     if (!conversation) {
-      throw new Error("Conversation not found");
+      throw { message: "Cuộc hội thoại không tồn tại" };
     }
 
     // Update read status for all messages in conversation
@@ -133,11 +199,11 @@ class MessageService {
     const message = await Message.findById(messageId);
 
     if (!message) {
-      throw new Error("Message not found");
+      throw { message: "Tin nhắn không tồn tại" };
     }
 
     if (message.sender.toString() !== userId.toString()) {
-      throw new Error("Unauthorized to delete this message");
+      throw { message: "Không có quyền xóa tin nhắn này" };
     }
 
     await message.remove();

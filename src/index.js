@@ -32,6 +32,9 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/conversations", require("./routes/conversations"));
 app.use("/api/messages", require("./routes/messages"));
+app.use("/api/notifications", require("./routes/notifications"));
+app.use("/api/files", require("./routes/files"));
+app.use("/api/search", require("./routes/search"));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
