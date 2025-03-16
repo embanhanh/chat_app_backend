@@ -28,8 +28,6 @@ router.get("/messages", auth, async (req, res) => {
       }
     );
 
-    console.log(searchResults);
-
     res.json(searchResults);
   } catch (error) {
     console.log(error);
@@ -57,8 +55,6 @@ router.get("/conversations", auth, async (req, res) => {
         limit: parseInt(limit) || 20,
       }
     );
-
-    console.log(searchResults);
 
     res.json(searchResults);
   } catch (error) {

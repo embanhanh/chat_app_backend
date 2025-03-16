@@ -58,7 +58,7 @@ class MessageService {
     await conversation.save();
 
     // Populate sender information before publishing
-    await message.populate("sender", "username avatar");
+    await message.populate("sender", "username avatar _id");
 
     // Publish message to Redis for real-time delivery
     await redisClient.publish(
@@ -134,7 +134,33 @@ class MessageService {
 
     if (notifications.length > 0) {
       try {
-        await admin.messaging().sendAll(notifications);
+        // Tạo đối tượng MulticastMessage
+        const multicastMessage = {
+          tokens: notifications.map((n) => n.token),
+          notification: {
+            title:
+              conversation.type === "group"
+                ? conversation.name
+                : "Tin nhắn mới",
+            body: notificationContent.substring(0, 100),
+          },
+          data: {
+            conversationId: conversation._id.toString(),
+            messageId: message._id.toString(),
+            type: "new_message",
+          },
+        };
+
+        // Sử dụng sendEachForMulticast để gửi thông báo đến tất cả token
+        const response = await admin
+          .messaging()
+          .sendEachForMulticast(multicastMessage);
+
+        if (response.failureCount > 0) {
+          console.log(
+            `${response.successCount} thông báo gửi thành công, ${response.failureCount} thông báo gửi thất bại`
+          );
+        }
       } catch (error) {
         console.error("Error sending push notifications:", error);
       }

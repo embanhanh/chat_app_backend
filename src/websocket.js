@@ -4,7 +4,74 @@ const { redisClient } = require("./config/redis");
 const UserService = require("./services/UserService");
 const MessageService = require("./services/MessageService");
 
+// Tạo một global subscriber cho toàn bộ hệ thống
+let globalSubscriber = null;
+let isSubscribed = false;
+
+// Xử lý tin nhắn mới từ Redis và gửi đến các clients
+async function handleNewMessage(message) {
+  try {
+    const data = JSON.parse(message);
+    const room = `conversation:${data.conversation}`;
+    // Gửi đến tất cả clients trong room
+    global.io.to(room).emit("new_message", data.message);
+  } catch (error) {
+    console.error("Error handling new message:", error);
+  }
+}
+
+// Xử lý đánh dấu đã đọc tin nhắn
+async function handleMessageRead(message) {
+  try {
+    const data = JSON.parse(message);
+    global.io.to(`conversation:${data.conversationId}`).emit("message_read", {
+      userId: data.userId,
+      conversationId: data.conversationId,
+    });
+  } catch (error) {
+    console.error("Error handling message read:", error);
+  }
+}
+
+// Xử lý xóa tin nhắn
+async function handleMessageDeleted(message) {
+  try {
+    const data = JSON.parse(message);
+    global.io
+      .to(`conversation:${data.conversationId}`)
+      .emit("message_deleted", {
+        messageId: data.messageId,
+        conversationId: data.conversationId,
+      });
+  } catch (error) {
+    console.error("Error handling message deletion:", error);
+  }
+}
+
+// Khởi tạo Redis subscribers
+async function initRedisSubscribers() {
+  if (isSubscribed) return;
+
+  console.log("Initializing Redis subscribers...");
+  globalSubscriber = redisClient.duplicate();
+  await globalSubscriber.connect();
+
+  // Đăng ký các kênh
+  await globalSubscriber.subscribe("new_message", handleNewMessage);
+  await globalSubscriber.subscribe("message_read", handleMessageRead);
+  await globalSubscriber.subscribe("message_deleted", handleMessageDeleted);
+
+  isSubscribed = true;
+  console.log("Redis subscribers initialized successfully");
+}
+
 const setupWebSocket = (io) => {
+  // Lưu trữ io trong global để có thể truy cập từ các hàm xử lý Redis
+  global.io = io;
+
+  // Khởi tạo Redis subscribers
+  initRedisSubscribers();
+
   // Middleware to authenticate socket connections
   io.use(async (socket, next) => {
     try {
@@ -34,54 +101,11 @@ const setupWebSocket = (io) => {
     // Update user's online status
     await UserService.updateOnlineStatus(userId, "online");
 
-    // Subscribe to Redis channels
-    const subscriber = redisClient.duplicate();
-    await subscriber.connect();
-
-    // Handle new messages
-    await subscriber.subscribe("new_message", async (message) => {
-      try {
-        const data = JSON.parse(message);
-        const room = `conversation:${data.conversation}`;
-        io.to(room).emit("new_message", data.message);
-      } catch (error) {
-        console.error("Error handling new message:", error);
-        socket.emit("error", { message: "Lỗi khi xử lý tin nhắn mới" });
-      }
-    });
-
-    // Handle message read receipts
-    await subscriber.subscribe("message_read", async (message) => {
-      try {
-        const data = JSON.parse(message);
-        io.to(`conversation:${data.conversationId}`).emit("message_read", {
-          userId: data.userId,
-          conversationId: data.conversationId,
-        });
-      } catch (error) {
-        console.error("Error handling message read:", error);
-        socket.emit("error", { message: "Lỗi khi xử lý trạng thái đã đọc" });
-      }
-    });
-
-    // Handle message deletions
-    await subscriber.subscribe("message_deleted", async (message) => {
-      try {
-        const data = JSON.parse(message);
-        io.to(`conversation:${data.conversationId}`).emit("message_deleted", {
-          messageId: data.messageId,
-          conversationId: data.conversationId,
-        });
-      } catch (error) {
-        console.error("Error handling message deletion:", error);
-        socket.emit("error", { message: "Lỗi khi xử lý xóa tin nhắn" });
-      }
-    });
-
     // Handle joining conversations
     socket.on("join_conversation", (conversationId) => {
       try {
         socket.join(`conversation:${conversationId}`);
+        console.log(`User ${userId} joined conversation ${conversationId}`);
       } catch (error) {
         console.error("Error joining conversation:", error);
         socket.emit("error", { message: "Lỗi khi tham gia cuộc trò chuyện" });
@@ -133,20 +157,6 @@ const setupWebSocket = (io) => {
     socket.on("disconnect", async () => {
       try {
         await UserService.updateOnlineStatus(userId, "offline");
-        await subscriber.quit();
-
-        // Implement reconnection logic
-        // if (reconnectAttempts < maxReconnectAttempts) {
-        //   setTimeout(async () => {
-        //     try {
-        //       await socket.connect();
-        //       reconnectAttempts = 0;
-        //     } catch (error) {
-        //       console.error("Reconnection failed:", error);
-        //       reconnectAttempts++;
-        //     }
-        //   }, reconnectDelay);
-        // }
       } catch (error) {
         console.error("Error handling disconnection:", error);
       }

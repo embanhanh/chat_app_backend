@@ -5,6 +5,7 @@ const auth = require("../middlewares/auth");
 const UserService = require("../services/UserService");
 
 // Đăng ký device token
+//[POST] /api/notifications/register-device
 router.post("/register-device", auth, async (req, res) => {
   try {
     const { deviceToken, device } = req.body;
@@ -32,6 +33,7 @@ router.post("/register-device", auth, async (req, res) => {
 });
 
 // Hủy đăng ký device token
+//[POST] /api/notifications/unregister-device
 router.post("/unregister-device", auth, async (req, res) => {
   try {
     const { deviceToken } = req.body;
@@ -59,6 +61,7 @@ router.post("/unregister-device", auth, async (req, res) => {
 });
 
 // Gửi test notification
+//[POST] /api/notifications/test
 router.post("/test", auth, async (req, res) => {
   try {
     const { title, body } = req.body;
