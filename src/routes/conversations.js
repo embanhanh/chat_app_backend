@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const auth = require("../middlewares/auth");
 const ConversationService = require("../services/ConversationService");
+const upload = require("../middlewares/upload");
 
 // Get user's conversations
 // [GET] api/conversations
@@ -11,6 +12,19 @@ router.get("/", auth, async (req, res) => {
       req.user._id
     );
     res.json(conversations);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Get conversation by id
+// [GET] api/conversations/:id
+router.get("/:id", auth, async (req, res) => {
+  try {
+    const conversation = await ConversationService.getConversationById(
+      req.params.id
+    );
+    res.json(conversation);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -34,13 +48,50 @@ router.post("/private/:userId", auth, async (req, res) => {
 // [POST] api/conversations/group
 router.post("/group", auth, async (req, res) => {
   try {
-    const { name, participants } = req.body;
+    const { name, participants, conversationId } = req.body;
     const conversation = await ConversationService.createGroupConversation(
       name,
       req.user._id,
-      participants
+      participants,
+      conversationId
     );
     res.status(201).json(conversation);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Update group conversation name
+// [PATCH] api/conversations/:id/name
+router.patch("/:id/name", auth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    const conversation = await ConversationService.updateGroupConversationName(
+      req.params.id,
+      req.user._id,
+      name
+    );
+    res.json(conversation);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Update group conversation avatar
+// [PATCH] api/conversations/:id/avatar
+router.patch("/:id/avatar", auth, upload.single("avatar"), async (req, res) => {
+  try {
+    if (!req.file) {
+      throw { message: "Không có file được tải lên" };
+    }
+
+    const conversation =
+      await ConversationService.updateGroupConversationAvatar(
+        req.params.id,
+        req.user._id,
+        req.file
+      );
+    res.json(conversation);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

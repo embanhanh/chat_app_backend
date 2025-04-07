@@ -6,6 +6,7 @@ const {
   DeleteObjectCommand,
   GetObjectCommand,
 } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const sharp = require("sharp");
 const crypto = require("crypto");
 const { s3Config } = require("../config/s3");
@@ -13,7 +14,7 @@ const { s3Config } = require("../config/s3");
 class FileService {
   constructor() {
     this.s3Client = new S3Client(s3Config);
-    this.bucketName = process.env.AWS_S3_BUCKET;
+    this.bucketName = process.env.AWS_BUCKET_NAME;
     this.allowedTypes = [
       "image/jpeg",
       "image/png",

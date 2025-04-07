@@ -1,7 +1,21 @@
 const Conversation = require("../models/Conversation");
 const User = require("../models/User");
+const FileService = require("./FileService");
 
 class ConversationService {
+  // Get conversation by id
+  static async getConversationById(conversationId) {
+    const conversation = await Conversation.findById(conversationId)
+      .populate("participants.user", "username avatar status")
+      .populate("lastMessage");
+
+    if (!conversation) {
+      throw { message: "Cuộc hội thoại không tồn tại" };
+    }
+
+    return conversation;
+  }
+
   // Create a new private conversation
   static async createPrivateConversation(userId1, userId2) {
     // Check if conversation already exists
@@ -25,7 +39,19 @@ class ConversationService {
   }
 
   // Create a new group conversation
-  static async createGroupConversation(name, creatorId, participantIds) {
+  static async createGroupConversation(
+    name,
+    creatorId,
+    participantIds,
+    conversationId = null
+  ) {
+    if (conversationId) {
+      const conversation = await Conversation.findById(conversationId);
+      if (conversation) {
+        return conversation;
+      }
+    }
+
     const allParticipants = [creatorId, ...participantIds];
 
     // Verify all participants exist
@@ -44,6 +70,52 @@ class ConversationService {
     });
 
     await conversation.save();
+    return conversation;
+  }
+
+  // Update group conversation name
+  static async updateGroupConversationName(conversationId, userId, name) {
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation || conversation.type !== "group") {
+      throw { message: "Cuộc hội thoại nhóm không tồn tại" };
+    }
+
+    if (
+      !conversation.participants.find(
+        (p) => p.user.toString() === userId.toString()
+      )
+    ) {
+      throw { message: "Bạn không có quyền sửa tên nhóm" };
+    }
+
+    conversation.name = name;
+    await conversation.save();
+    return conversation;
+  }
+
+  // Update group conversation avatar
+  static async updateGroupConversationAvatar(conversationId, userId, avatar) {
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation || conversation.type !== "group") {
+      throw { message: "Cuộc hội thoại nhóm không tồn tại" };
+    }
+
+    if (
+      !conversation.participants.find(
+        (p) => p.user.toString() === userId.toString()
+      )
+    ) {
+      throw { message: "Bạn không có quyền sửa avatar nhóm" };
+    }
+
+    if (avatar) {
+      const fileUpload = await FileService.uploadToS3(avatar, "group_avatar");
+      conversation.avatar = fileUpload.url;
+      await conversation.save();
+    }
+
     return conversation;
   }
 
