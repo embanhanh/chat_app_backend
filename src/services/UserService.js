@@ -135,6 +135,31 @@ class UserService {
 
     await Promise.all([user.save(), friend.save()]);
   }
+
+  // Remove friend
+  static async removeFriend(userId, friendId) {
+    const [user, friend] = await Promise.all([
+      User.findById(userId),
+      User.findById(friendId),
+    ]);
+
+    if (!user || !friend) {
+      throw { message: "Không tìm thấy người dùng" };
+    }
+
+    // Check if they are actually friends
+    if (!user.friends.some(id => id.toString() === friendId)) {
+      throw { message: "Người dùng này không có trong danh sách bạn bè" };
+    }
+
+    // Remove from both users' friend lists
+    user.friends = user.friends.filter(id => id.toString() !== friendId);
+    friend.friends = friend.friends.filter(id => id.toString() !== userId);
+
+    await Promise.all([user.save(), friend.save()]);
+    
+    return { message: "Đã xóa khỏi danh sách bạn bè" };
+  }
 }
 
 module.exports = UserService;
