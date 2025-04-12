@@ -232,7 +232,7 @@ class MessageService {
       throw { message: "Không có quyền xóa tin nhắn này" };
     }
 
-    await message.remove();
+    await Message.findByIdAndDelete(messageId);
 
     // Publish delete event to Redis
     await redisClient.publish(
