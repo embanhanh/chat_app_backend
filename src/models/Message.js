@@ -46,6 +46,11 @@ const messageSchema = new mongoose.Schema(
       default: "text",
     },
     media: [attachmentSchema],
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null
+    },
     readBy: [
       {
         user: {
