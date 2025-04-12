@@ -184,7 +184,35 @@ router.delete("/:messageId", auth, async (req, res) => {
     await MessageService.deleteMessage(req.params.messageId, req.user._id);
     res.json({ message: "Message deleted successfully" });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    if (error.message === "Tin nhắn không tồn tại") {
+      res.status(404).json({ message: error.message });
+    } else if (error.message === "Không có quyền xóa tin nhắn này") {
+      res.status(403).json({ message: error.message });
+    } else {
+      res.status(400).json({ message: error.message });
+    }
+  }
+});
+
+// Edit message
+// [PUT] api/messages/:messageId
+router.put("/:messageId", auth, async (req, res) => {
+  try {
+    const { content } = req.body;
+    const message = await MessageService.editMessage(
+      req.params.messageId, 
+      req.user._id,
+      content
+    );
+    res.json(message);
+  } catch (error) {
+    if (error.message === "Tin nhắn không tồn tại") {
+      res.status(404).json({ message: error.message });
+    } else if (error.message === "Không có quyền chỉnh sửa tin nhắn này") {
+      res.status(403).json({ message: error.message });
+    } else {
+      res.status(400).json({ message: error.message });
+    }
   }
 });
 
