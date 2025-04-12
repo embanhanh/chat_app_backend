@@ -64,7 +64,7 @@ router.post("/avatar", auth, upload.single("avatar"), async (req, res) => {
 router.post("/friend-request/:id", auth, async (req, res) => {
   try {
     await UserService.sendFriendRequest(req.user._id, req.params.id);
-    res.json({ message: "Friend request sent" });
+    res.json({ message: "Friend request sent" }); 
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -75,6 +75,26 @@ router.post("/friend-request/:id/accept", auth, async (req, res) => {
   try {
     await UserService.acceptFriendRequest(req.user._id, req.params.id);
     res.json({ message: "Friend request accepted" });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Reject friend request
+router.post("/friend-request/:id/reject", auth, async (req, res) => {
+  try {
+    await UserService.rejectFriendRequest(req.user._id, req.params.id);
+    res.json({ message: "Friend request rejected successfully" });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Remove friend
+router.post("/friend/:id/remove", auth, async (req, res) => {
+  try {
+    await UserService.removeFriend(req.user._id, req.params.id);
+    res.json({ message: "Friend removed successfully" });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
