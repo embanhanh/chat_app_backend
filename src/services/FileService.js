@@ -72,6 +72,7 @@ class FileService {
         Key: key,
         Body: fileBuffer,
         ContentType: contentType,
+        ACL: "public-read",
       });
 
       await this.s3Client.send(command);
