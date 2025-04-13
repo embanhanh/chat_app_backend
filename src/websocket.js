@@ -75,7 +75,8 @@ const setupWebSocket = (io) => {
   // Middleware to authenticate socket connections
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.auth.token;
+      const token =
+        socket.handshake.auth?.token || socket.handshake.headers?.token;
       if (!token) {
         throw new Error("Authentication error");
       }
@@ -100,6 +101,10 @@ const setupWebSocket = (io) => {
 
     // Update user's online status
     await UserService.updateOnlineStatus(userId, "online");
+
+    socket.on("test", (data) => {
+      console.log(data);
+    });
 
     // Handle joining conversations
     socket.on("join_conversation", (conversationId) => {
