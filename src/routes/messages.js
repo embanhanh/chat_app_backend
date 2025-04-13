@@ -27,11 +27,11 @@ router.get("/:conversationId", auth, async (req, res) => {
 // [POST] api/messages/:conversationId
 router.post("/:conversationId", auth, async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, replyTo } = req.body;
     const message = await MessageService.sendMessage(
       req.user._id,
       req.params.conversationId,
-      { content }
+      { content, replyTo }
     );
     res.status(201).json(message);
   } catch (error) {
@@ -184,6 +184,93 @@ router.delete("/:messageId", auth, async (req, res) => {
     await MessageService.deleteMessage(req.params.messageId, req.user._id);
     res.json({ message: "Message deleted successfully" });
   } catch (error) {
+    if (error.message === "Tin nhắn không tồn tại") {
+      res.status(404).json({ message: error.message });
+    } else if (error.message === "Không có quyền xóa tin nhắn này") {
+      res.status(403).json({ message: error.message });
+    } else {
+      res.status(400).json({ message: error.message });
+    }
+  }
+});
+
+// Edit message
+// [PUT] api/messages/:messageId
+router.put("/:messageId", auth, async (req, res) => {
+  try {
+    const { content } = req.body;
+    const message = await MessageService.editMessage(
+      req.params.messageId, 
+      req.user._id,
+      content
+    );
+    res.json(message);
+  } catch (error) {
+    if (error.message === "Tin nhắn không tồn tại") {
+      res.status(404).json({ message: error.message });
+    } else if (error.message === "Không có quyền chỉnh sửa tin nhắn này") {
+      res.status(403).json({ message: error.message });
+    } else {
+      res.status(400).json({ message: error.message });
+    }
+  }
+});
+
+// Reply to a message
+// [POST] api/messages/:messageId/reply
+router.post("/:messageId/reply", auth, upload.array("attachments", 10), async (req, res) => {
+  try {
+    const { content } = req.body;
+    const files = req.files;
+    let messageData = { content };
+
+    // Nếu có files, xử lý upload
+    if (files && files.length > 0) {
+      const mediaFiles = await Promise.all(
+        files.map(async (file) => {
+          const key = `messages/replies/${Date.now()}-${file.originalname}`;
+
+          const uploadParams = {
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key: key,
+            Body: file.buffer,
+            ContentType: file.mimetype
+          };
+
+          const command = new PutObjectCommand(uploadParams);
+          await s3.send(command);
+
+          return {
+            filename: file.originalname,
+            contentType: file.mimetype.startsWith("image/")
+              ? "image"
+              : file.mimetype.startsWith("video/")
+              ? "video"
+              : file.mimetype.startsWith("audio/")
+              ? "audio"
+              : "file",
+            mimeType: file.mimetype,
+            size: file.size,
+            url: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
+          };
+        })
+      );
+
+      messageData.media = mediaFiles;
+      messageData.contentType = "media";
+    } else {
+      messageData.contentType = "text";
+    }
+
+    const message = await MessageService.replyMessage(
+      req.user._id,
+      req.params.messageId,
+      messageData
+    );
+
+    res.status(201).json(message);
+  } catch (error) {
+    console.error("Error replying to message:", error);
     res.status(400).json({ message: error.message });
   }
 });

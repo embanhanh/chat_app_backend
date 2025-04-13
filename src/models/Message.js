@@ -46,6 +46,11 @@ const messageSchema = new mongoose.Schema(
       default: "text",
     },
     media: [attachmentSchema],
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null
+    },
     readBy: [
       {
         user: {
@@ -64,6 +69,14 @@ const messageSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    isEdited: {
+      type: Boolean,
+      default: false
+    },
+    editedAt: {
+      type: Date,
+      default: null
+    },
   },
   {
     timestamps: true,

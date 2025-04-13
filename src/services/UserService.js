@@ -88,6 +88,13 @@ class UserService {
     return "offline";
   }
 
+  // Get info of user
+  static async getUserInfo(userId) {
+    const user = await User.findById(userId);
+    if (!user) throw { message: "Không tìm thấy người dùng" };
+    return user;
+  }
+
   // Send friend request
   static async sendFriendRequest(senderId, receiverId) {
     const [sender, receiver] = await Promise.all([
@@ -95,11 +102,15 @@ class UserService {
       User.findById(receiverId),
     ]);
 
+    if (sender._id.equals(receiver._id)) {
+      throw { message: "Không thể gửi lời mời kết bạn cho chính mình" };
+    }
+
     if (!sender || !receiver) {
       throw { message: "Không tìm thấy người dùng" };
     }
 
-    if (receiver.friendRequests.includes(senderId)) {
+    if (receiver.friendRequests.includes(senderId)) {          
       throw { message: "Đã gửi lời mời kết bạn trước đó" };
     }
 
@@ -135,7 +146,26 @@ class UserService {
 
     await Promise.all([user.save(), friend.save()]);
   }
+  
+  // Reject friend request
+  static async rejectFriendRequest(userId, friendId) {
+    const [user, friend] = await Promise.all([  
+      User.findById(userId),
+      User.findById(friendId),
+    ]);
+    if (!user || !friend) throw { message: "Không tìm thấy người dùng" };
 
+    if (!user.friendRequests.includes(friendId)) {
+      throw { message: "Không tìm thấy lời mời kết bạn" };
+    }
+
+    // Remove friend request
+    user.friendRequests = user.friendRequests.filter(
+      (id) => id.toString() !== friendId
+    );
+    await user.save();
+  }
+  
   // Remove friend
   static async removeFriend(userId, friendId) {
     const [user, friend] = await Promise.all([
@@ -143,23 +173,23 @@ class UserService {
       User.findById(friendId),
     ]);
 
-    if (!user || !friend) {
-      throw { message: "Không tìm thấy người dùng" };
+    if (!user || !friend) throw { message: "Không tìm thấy người dùng" };
+
+    if (!user.friends.includes(friendId)) {
+      throw { message: "Các bạn chưa phải là bạn bè" };
     }
 
-    // Check if they are actually friends
-    if (!user.friends.some(id => id.toString() === friendId)) {
-      throw { message: "Người dùng này không có trong danh sách bạn bè" };
+    if (user.friends.includes(userId)) {
+      throw { message: "Bạn không thể xóa chính mình" };
     }
 
-    // Remove from both users' friend lists
-    user.friends = user.friends.filter(id => id.toString() !== friendId);
-    friend.friends = friend.friends.filter(id => id.toString() !== userId);
-
-    await Promise.all([user.save(), friend.save()]);
+    // remove friend from both users
+    user.friends = user.friends.filter((id) => id.toString() !== friendId.toString());
+    friend.friends = friend.friends.filter((id) => id.toString() !== userId.toString());
     
-    return { message: "Đã xóa khỏi danh sách bạn bè" };
+    await Promise.all([user.save(), friend.save()]);
   }
+
 }
 
 module.exports = UserService;
