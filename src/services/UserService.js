@@ -146,7 +146,7 @@ class UserService {
 
     await Promise.all([user.save(), friend.save()]);
   }
-
+  
   // Reject friend request
   static async rejectFriendRequest(userId, friendId) {
     const [user, friend] = await Promise.all([  
@@ -165,7 +165,7 @@ class UserService {
     );
     await user.save();
   }
-
+  
   // Remove friend
   static async removeFriend(userId, friendId) {
     const [user, friend] = await Promise.all([
@@ -190,7 +190,6 @@ class UserService {
     await Promise.all([user.save(), friend.save()]);
   }
 
-  
 }
 
 module.exports = UserService;

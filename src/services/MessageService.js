@@ -29,6 +29,18 @@ class MessageService {
       }
     }
 
+    // Kiểm tra tin nhắn được trả lời nếu có
+    if (messageData.replyTo) {
+      const repliedMessage = await Message.findById(messageData.replyTo);
+      if (!repliedMessage) {
+        throw { message: "Tin nhắn được trả lời không tồn tại" };
+      }
+      // Kiểm tra xem tin nhắn được trả lời có thuộc cùng cuộc hội thoại không
+      if (repliedMessage.conversation.toString() !== conversationId.toString()) {
+        throw { message: "Không thể trả lời tin nhắn từ cuộc hội thoại khác" };
+      }
+    }
+
     // Create and save the message
     const message = new Message({
       sender: senderId,
@@ -36,6 +48,7 @@ class MessageService {
       content: messageData.content || "",
       contentType: messageData.contentType,
       media: messageData.media || [],
+      replyTo: messageData.replyTo || null,
     });
 
     await message.save();
@@ -215,6 +228,14 @@ class MessageService {
       .skip(skip)
       .limit(limit)
       .populate("sender", "username avatar")
+      .populate({
+        path: "replyTo",
+        select: "content contentType media sender",
+        populate: {
+          path: "sender",
+          select: "username avatar"
+        }
+      })
       .lean();
 
     return messages.reverse();
@@ -232,7 +253,7 @@ class MessageService {
       throw { message: "Không có quyền xóa tin nhắn này" };
     }
 
-    await message.remove();
+    await Message.findByIdAndDelete(messageId);
 
     // Publish delete event to Redis
     await redisClient.publish(
@@ -242,6 +263,92 @@ class MessageService {
         conversationId: message.conversation,
       })
     );
+  }
+
+  // Edit message
+  static async editMessage(messageId, userId, newContent) {
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      throw { message: "Tin nhắn không tồn tại" };
+    }
+
+    if (message.sender.toString() !== userId.toString()) {
+      throw { message: "Không có quyền chỉnh sửa tin nhắn này" };
+    }
+
+    // Chỉ cho phép chỉnh sửa tin nhắn văn bản
+    if (message.contentType !== "text") {
+      throw { message: "Chỉ có thể chỉnh sửa tin nhắn văn bản" };
+    }
+
+    // Cập nhật nội dung và thông tin chỉnh sửa
+    message.content = newContent;
+    message.isEdited = true;
+    message.editedAt = new Date();
+    
+    await message.save();
+
+    // Publish edit event to Redis
+    await redisClient.publish(
+      "message_edited",
+      JSON.stringify({
+        messageId,
+        conversationId: message.conversation,
+        newContent,
+        isEdited: true,
+        editedAt: message.editedAt
+      })
+    );
+
+    return message;
+  }
+
+  // Reply to a message
+  static async replyMessage(senderId, messageId, messageData) {
+    // Tìm tin nhắn gốc cần reply
+    const originalMessage = await Message.findById(messageId);
+    if (!originalMessage) {
+      throw { message: "Tin nhắn gốc không tồn tại" };
+    }
+
+    // Kiểm tra người dùng có trong cuộc hội thoại không
+    const conversation = await Conversation.findById(originalMessage.conversation);
+    if (!conversation) {
+      throw { message: "Cuộc hội thoại không tồn tại" };
+    }
+
+    const isParticipant = conversation.participants.some(
+      (participant) => participant.user.toString() === senderId.toString()
+    );
+
+    if (!isParticipant) {
+      throw { message: "Bạn không phải thành viên của cuộc hội thoại này" };
+    }
+
+    // Tạo tin nhắn reply
+    const replyMessage = await this.sendMessage(
+      senderId,
+      originalMessage.conversation,
+      {
+        content: messageData.content || "",
+        replyTo: messageId,
+        contentType: messageData.contentType,
+        media: messageData.media || []
+      }
+    );
+
+    // Populate thêm thông tin tin nhắn gốc
+    await replyMessage.populate({
+      path: "replyTo",
+      select: "content contentType media sender",
+      populate: {
+        path: "sender",
+        select: "username avatar"
+      }
+    });
+
+    return replyMessage;
   }
 }
 

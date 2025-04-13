@@ -6,6 +6,7 @@ const upload = require("../middlewares/upload");
 const UserService = require("../services/UserService");
 const s3 = require("../config/s3");
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
+const User = require("../models/User");
 
 // Search users
 router.get("/search", auth, async (req, res) => {
@@ -119,6 +120,16 @@ router.get("/friend-requests", auth, async (req, res) => {
       .populate("friendRequests", "username avatar")
       .select("friendRequests");
     res.json(user.friendRequests);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Remove friend
+router.delete("/friends/:id", auth, async (req, res) => {
+  try {
+    const result = await UserService.removeFriend(req.user._id, req.params.id);
+    res.json(result);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

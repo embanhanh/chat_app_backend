@@ -63,4 +63,28 @@ router.get("/conversations", auth, async (req, res) => {
   }
 });
 
+// Tìm kiếm bạn bè
+// [GET] api/search/friends
+router.get("/friends", auth, async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res.status(400).json({ message: "Vui lòng nhập từ khóa tìm kiếm" });
+    }
+
+    if (!req.user._id) {
+      return res.status(400).json({ message: "Không tìm thấy thông tin người dùng" });
+    }
+
+    const friends = await SearchService.searchFriends(req.user._id, query);
+    res.json(friends);
+  } catch (error) {
+    console.error("Search friends error:", error);
+    res.status(500).json({ 
+      message: error.message || "Lỗi khi tìm kiếm bạn bè",
+      error: error.error || error
+    });
+  }
+});
+
 module.exports = router;
