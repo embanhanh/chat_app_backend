@@ -63,12 +63,40 @@ class RedisManager {
     }
   }
 
+  async publishGroupCreated({ conversationId, name, creatorId, participantIds, users }) {
+    try {
+      await this.client.publish(
+        "group_created",
+        JSON.stringify({
+          conversationId,
+          name,
+          creatorId,
+          participantIds,
+          users,
+        })
+      );
+      return true;
+    } catch (error) {
+      console.error("Error publishing group created:", error);
+      return false;
+    }
+  }
+
   // Quản lý conversation participants
-  async addConversationParticipant(conversationId, userId) {
+  async addConversationParticipant(conversationId, userId, userInfo) {
     try {
       await this.client.sAdd(
         `conversation:${conversationId}:participants`,
         userId
+      );
+
+      await this.client.publish(
+        "member_added",
+        JSON.stringify({
+          conversationId,
+          users: userInfo, // { avatarUrl, name }
+          newParticipantId: userId,
+        })
       );
       return true;
     } catch (error) {
@@ -79,14 +107,82 @@ class RedisManager {
 
   async removeConversationParticipant(conversationId, userId) {
     try {
+      // Xóa userId khỏi tập hợp participants
       await this.client.sRem(
         `conversation:${conversationId}:participants`,
         userId
       );
+
+      // Xuất bản sự kiện member_removed
+      await this.client.publish(
+        "member_removed",
+        JSON.stringify({
+          conversationId,
+          userId,
+        })
+      );
+
       return true;
     } catch (error) {
       console.error("Error removing conversation participant:", error);
       return false;
+    }
+  }
+
+  // Quản lý group name update
+  async publishGroupNameUpdated({ conversationId, name, updatedBy }) {
+    try {
+      if (typeof conversationId !== "string") {
+        throw new Error("conversationId phải là chuỗi");
+      }
+      await this.client.publish(
+        "group_name_updated",
+        JSON.stringify({
+          conversationId,
+          name,
+          updatedBy,
+        })
+      );
+      return true;
+    } catch (error) {
+      console.error("Error publishing group name updated:", error);
+      throw error;
+    }
+  }
+
+  async deleteConversationData(conversationId, participantIds) {
+    try {
+      if (typeof conversationId !== "string") {
+        throw new Error("conversationId phải là chuỗi");
+      }
+      await this.client.del(`conversation:${conversationId}:participants`);
+      for (const userId of participantIds) {
+        const typingKey = `typing:${conversationId}:${userId}`;
+        await this.client.del(typingKey);
+      }
+      return true;
+    } catch (error) {
+      console.error("Error deleting conversation data:", error);
+      throw error;
+    }
+  }
+  
+  async publishConversationDeleted({ conversationId, participantIds }) {
+    try {
+      if (typeof conversationId !== "string") {
+        throw new Error("conversationId phải là chuỗi");
+      }
+      await this.client.publish(
+        "conversation_deleted",
+        JSON.stringify({
+          conversationId,
+          participantIds,
+        })
+      );
+      return true;
+    } catch (error) {
+      console.error("Error publishing conversation deleted:", error);
+      throw error;
     }
   }
 
