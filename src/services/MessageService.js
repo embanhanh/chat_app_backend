@@ -243,6 +243,45 @@ class MessageService {
       })
     );
   }
+
+  // Edit message
+  static async editMessage(messageId, userId, newContent) {
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      throw { message: "Tin nhắn không tồn tại" };
+    }
+
+    if (message.sender.toString() !== userId.toString()) {
+      throw { message: "Không có quyền chỉnh sửa tin nhắn này" };
+    }
+
+    // Chỉ cho phép chỉnh sửa tin nhắn văn bản
+    if (message.contentType !== "text") {
+      throw { message: "Chỉ có thể chỉnh sửa tin nhắn văn bản" };
+    }
+
+    // Cập nhật nội dung và thông tin chỉnh sửa
+    message.content = newContent;
+    message.isEdited = true;
+    message.editedAt = new Date();
+    
+    await message.save();
+
+    // Publish edit event to Redis
+    await redisClient.publish(
+      "message_edited",
+      JSON.stringify({
+        messageId,
+        conversationId: message.conversation,
+        newContent,
+        isEdited: true,
+        editedAt: message.editedAt
+      })
+    );
+
+    return message;
+  }
 }
 
 module.exports = MessageService;
