@@ -8,9 +8,20 @@ const upload = require("../middlewares/upload");
 // [GET] api/conversations
 router.get("/", auth, async (req, res) => {
   try {
+    // Lấy query params từ request
+    const { limit, beforeTimestamp, beforeId } = req.query;
+
+    // Gọi service với các tham số
     const conversations = await ConversationService.getUserConversations(
-      req.user._id
+      req.user._id,
+      {
+        limit: limit ? parseInt(limit, 10) : undefined,
+        beforeTimestamp,
+        beforeId,
+      }
     );
+
+    // Trả về kết quả
     res.json(conversations);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -31,12 +42,13 @@ router.get("/:id", auth, async (req, res) => {
 });
 
 // Create private conversation
-// [POST] api/conversations/private/:userId
-router.post("/private/:userId", auth, async (req, res) => {
+// [POST] api/conversations/private
+router.post("/private", auth, async (req, res) => {
   try {
+    const otherUserId = req.body.otherUserId;
     const conversation = await ConversationService.createPrivateConversation(
       req.user._id,
-      req.params.userId
+      otherUserId
     );
     res.status(201).json(conversation);
   } catch (error) {
@@ -48,11 +60,11 @@ router.post("/private/:userId", auth, async (req, res) => {
 // [POST] api/conversations/group
 router.post("/group", auth, async (req, res) => {
   try {
-    const { name, participants, conversationId } = req.body;
+    const { name, members, conversationId } = req.body;
     const conversation = await ConversationService.createGroupConversation(
       name,
       req.user._id,
-      participants,
+      members,
       conversationId
     );
     res.status(201).json(conversation);
@@ -98,14 +110,14 @@ router.patch("/:id/avatar", auth, upload.single("avatar"), async (req, res) => {
 });
 
 // Add participant to group
-// [POST] api/conversations/:id/participants
-router.post("/:id/participants", auth, async (req, res) => {
+// [POST] api/conversations/:conversationId/members
+router.post("/:conversationId/members", auth, async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userIds } = req.body;
     await ConversationService.addParticipant(
-      req.params.id,
+      req.params.conversationId,
       req.user._id,
-      userId
+      userIds
     );
     res.json({ message: "Participant added successfully" });
   } catch (error) {
@@ -115,10 +127,14 @@ router.post("/:id/participants", auth, async (req, res) => {
 
 // Remove participant from group
 // [DELETE] api/conversations/:id/participants/:userId
-router.delete("/:id/participants/:userId", auth, async (req, res) => {
+router.delete("/:conversationId/members/:userId", auth, async (req, res) => {
   try {
+    if (req.params.userId === req.user._id) {
+      return res.status(400).json({ message: "Cannot remove yourself" });
+    }
+    
     await ConversationService.removeParticipant(
-      req.params.id,
+      req.params.conversationId,
       req.user._id,
       req.params.userId
     );
@@ -129,13 +145,27 @@ router.delete("/:id/participants/:userId", auth, async (req, res) => {
 });
 
 // Leave conversation
-// [POST] api/conversations/:id/leave
-router.post("/:id/leave", auth, async (req, res) => {
+// [DELETE] api/conversations/:conversationId/leave
+router.delete("/:conversationId/leave", auth, async (req, res) => {
   try {
-    await ConversationService.leaveConversation(req.params.id, req.user._id);
+    await ConversationService.leaveConversation(req.params.conversationId, req.user._id);
     res.json({ message: "Left conversation successfully" });
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+});
+
+// Delete conversation
+// [DELETE] api/conversations/:conversationId
+router.delete("/:conversationId", auth, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user._id;
+
+    await ConversationService.deleteConversation(conversationId, userId);
+    res.status(200).json({ message: "Xóa cuộc trò chuyện thành công" });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
   }
 });
 

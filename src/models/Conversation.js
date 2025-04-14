@@ -14,6 +14,14 @@ const conversationSchema = new mongoose.Schema(
         return this.type === "group";
       },
     },
+    isDeleted: {
+      type: Boolean, // Đánh dấu nhóm đã bị xóa
+      default: false,
+    },
+    deletedAt: {
+      type: Date, // Thời gian xóa
+      default: null,
+    },
     participants: [
       {
         user: {
@@ -29,6 +37,18 @@ const conversationSchema = new mongoose.Schema(
         lastRead: {
           type: Date,
           default: Date.now,
+        },
+        isMuted: {
+          type: Boolean,
+          default: false,
+        },
+        isArchived: {
+          type: Boolean,
+          default: false,
+        },
+        deletedBy: {
+          type: Boolean, // True nếu người này đã xóa cuộc trò chuyện
+          default: false,
         },
       },
     ],

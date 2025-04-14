@@ -14,9 +14,87 @@ async function handleNewMessage(message) {
     const data = JSON.parse(message);
     const room = `conversation:${data.conversation}`;
     // Gửi đến tất cả clients trong room
-    global.io.to(room).emit("new_message", data.message);
+    global.io.to(room).emit("new_message", {
+      message: data.message,
+      conversationId: data.conversation, //send conversationId to client
+    });
   } catch (error) {
     console.error("Error handling new message:", error);
+  }
+}
+
+async function handleGroupCreated(message) {
+  try {
+    const data = JSON.parse(message);
+    const { conversationId, name, creatorId, participantIds, users } = data;
+
+    // Thông báo cho tất cả thành viên (bao gồm người tạo)
+    participantIds.forEach((userId) => {
+      global.io.to(`user:${userId}`).emit("groupCreated", {
+        type: "groupCreated",
+        data: {
+          conversationId,
+          name,
+          creatorId,
+          users,
+        },
+      });
+    });
+
+    // Tự động yêu cầu các thành viên tham gia phòng
+    participantIds.forEach((userId) => {
+      global.io.to(`user:${userId}`).emit("joinConversation", {
+        conversationId,
+      });
+    });
+  } catch (error) {
+    console.error("Error handling group created:", error);
+  }
+}
+
+async function handleMemberAdded(message) {
+  try {
+    const data = JSON.parse(message);
+    const { conversationId, users, newParticipantId } = data;
+
+    // Phát sự kiện đến các thành viên hiện tại trong phòng
+    global.io.to(`conversation:${conversationId}`).emit("memberAdded", {
+      type: "memberAdded",
+      data: {
+        conversationId,
+        users,
+      },
+    });
+
+    // Thông báo cho người dùng mới để tham gia phòng
+    global.io.to(`user:${newParticipantId}`).emit("addedToConversation", {
+      conversationId,
+    });
+  } catch (error) {
+    console.error("Error handling member added:", error);
+  }
+}
+
+async function handleMemberRemoved(message) {
+  try {
+    const data = JSON.parse(message);
+    const { conversationId, userId } = data;
+
+    // Thông báo cho các thành viên hiện tại trong nhóm
+    global.io.to(`conversation:${conversationId}`).emit("memberRemoved", {
+      type: "memberRemoved",
+      data: {
+        conversationId,
+        userId,
+      },
+    });
+
+    // Thông báo cho người dùng bị xóa
+    global.io.to(`user:${userId}`).emit("removedFromConversation", {
+      conversationId,
+    });
+  } catch (error) {
+    console.error("Error handling member removed:", error);
   }
 }
 
@@ -48,6 +126,47 @@ async function handleMessageDeleted(message) {
   }
 }
 
+async function handleGroupNameUpdated(message) {
+  try {
+    const data = JSON.parse(message);
+    const { conversationId, name, updatedBy } = data;
+
+    // Thông báo cho tất cả thành viên trong nhóm
+    global.io.to(`conversation:${conversationId}`).emit("groupNameUpdated", {
+      type: "groupNameUpdated",
+      data: {
+        conversationId,
+        name,
+        updatedBy,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling group name updated:", error);
+  }
+}
+
+async function handleConversationDeleted(message) {
+  try {
+    const data = JSON.parse(message);
+    const { conversationId, participantIds } = data;
+
+    participantIds.forEach((userId) => {
+      global.io.to(`user:${userId}`).emit("conversationDeleted", {
+        type: "conversationDeleted",
+        data: {
+          conversationId,
+        },
+      });
+    });
+
+    global.io.to(`conversation:${conversationId}`).emit("leaveConversation", {
+      conversationId,
+    });
+  } catch (error) {
+    console.error("Error handling conversation deleted:", error);
+  }
+}
+
 // Khởi tạo Redis subscribers
 async function initRedisSubscribers() {
   if (isSubscribed) return;
@@ -60,6 +179,17 @@ async function initRedisSubscribers() {
   await globalSubscriber.subscribe("new_message", handleNewMessage);
   await globalSubscriber.subscribe("message_read", handleMessageRead);
   await globalSubscriber.subscribe("message_deleted", handleMessageDeleted);
+  await globalSubscriber.subscribe("member_added", handleMemberAdded);
+  await globalSubscriber.subscribe("member_removed", handleMemberRemoved);
+  await globalSubscriber.subscribe("group_created", handleGroupCreated);
+  await globalSubscriber.subscribe(
+    "group_name_updated",
+    handleGroupNameUpdated
+  );
+  await globalSubscriber.subscribe(
+    "conversation_deleted",
+    handleConversationDeleted
+  );
 
   isSubscribed = true;
   console.log("Redis subscribers initialized successfully");
