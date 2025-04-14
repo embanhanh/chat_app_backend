@@ -135,4 +135,36 @@ router.delete("/friends/:id", auth, async (req, res) => {
   }
 });
 
+// Get user's info
+router.get("/info", auth, async (req, res) => {
+  try {
+    const user = await UserService.getUserInfo(req.user._id);
+    res.json(user);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+   
+
+// Get user's friends
+router.get("/friends", auth, async (req, res) => {
+  try {
+    const user = await UserService.getUserFriends(req.user._id);
+    res.json(user);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Get user's friend requests
+router.get("/friend-requests", auth, async (req, res) => {
+  try {
+    const user = await UserService.getUserFriendRequests(req.user._id);
+    res.json(user);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+
 module.exports = router;

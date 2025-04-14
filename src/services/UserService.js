@@ -2,6 +2,7 @@ require("dotenv").config();
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const { redisClient } = require("../config/redis");
+const sendEmail = require("../utils/sendEmail");
 
 class UserService {
   // Create JWT token
@@ -43,6 +44,22 @@ class UserService {
       console.error("Error updating FCM token:", error.message);
       throw error;
     }
+  }
+
+  // Push fcm token to user
+  static async pushFCMToken(userId, token, device) {
+    const user = await User.findById(userId);
+    if (!user) throw { message: "Không tìm thấy người dùng" };
+    user.fcmTokens.push({ token, device });
+    await user.save();
+  }
+
+  // Delete fcm token from user
+  static async deleteFCMToken(userId, token, device) {
+    const user = await User.findById(userId);
+    if (!user) throw { message: "Không tìm thấy người dùng" };
+    user.fcmTokens = user.fcmTokens.filter((t) => t.device !== device);
+    await user.save();
   }
 
   // Search users
@@ -93,6 +110,20 @@ class UserService {
     const user = await User.findById(userId);
     if (!user) throw { message: "Không tìm thấy người dùng" };
     return user;
+  }
+
+  // Get user's friends
+  static async getUserFriends(userId) {
+    const user = await User.findById(userId).populate("friends");
+    if (!user) throw { message: "Không tìm thấy người dùng" };
+    return user.friends;
+  }
+
+  // Get user's friend requests
+  static async getUserFriendRequests(userId) {
+    const user = await User.findById(userId).populate("friendRequests");
+    if (!user) throw { message: "Không tìm thấy người dùng" };
+    return user.friendRequests;
   }
 
   // Send friend request
@@ -188,6 +219,32 @@ class UserService {
     friend.friends = friend.friends.filter((id) => id.toString() !== userId.toString());
     
     await Promise.all([user.save(), friend.save()]);
+  }
+
+  // Forgot password
+  static async forgotPassword(email) {
+    const user = await User.findOne({ email });
+    if (!user) throw { message: "Email không tồn tại" };
+    const token = jwt.sign(
+      { email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+    // Link này sẽ đưa người dùng đến trang đặt lại mật khẩu có token
+    const resetLink = `http://localhost:3000/api/auth/reset-password?token=${token}`;
+    await sendEmail(user.email, 'Khôi phục mật khẩu', `Đặt lại mật khẩu tại đây: ${resetLink}`);
+    return { message: "Email đã được gửi đến người dùng" };
+  }
+
+  // Reset password
+  static async resetPassword(token, newPassword, confirmPassword) {
+    if (newPassword !== confirmPassword) throw { message: "Mật khẩu không khớp" };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findOne({ email: decoded.email });
+    if (!user) throw { message: "Email không tồn tại" };
+    user.password = newPassword;
+    await user.save();
+    return { message: "Mật khẩu đã được đặt lại" };
   }
 
 }
