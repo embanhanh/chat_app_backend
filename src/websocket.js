@@ -37,50 +37,6 @@ async function handleNewMessage(message) {
     console.error("Error handling new message:", error);
   }
 }
-// Xử lý khi người dùng gửi lời mời kết bạn
-async function handleFriendRequest(message) {
-  try {
-    const data = JSON.parse(message);
-    const { senderId, receiverId, senderInfo } = data;
-    console.log("Friend request data:", data);
-
-    const receiver = `user:${receiverId}`;
-
-    // Gửi thông báo đến người nhận lời mời kết bạn
-    global.io.to(receiver).emit("friend_request", {
-      type: "friendRequest",
-      data: {
-        senderId,
-        senderInfo: senderInfo || {
-          _id: senderId,
-          timestamp: new Date().toISOString()
-        }
-      }
-    });
-
-    // Gửi thông báo xác nhận đến người gửi
-    global.io.to(`user:${senderId}`).emit("friend_request_sent", {
-      type: "friendRequestSent",
-      data: {
-        receiverId
-      }
-    });
-
-    // Gửi thêm bản dạng JSON string (để test với Postman nếu cần)
-    global.io.to(`user:${senderId}`).emit("friend_request_sent_json", JSON.stringify({
-      type: "friendRequestSent",
-      data: {
-        receiverId
-      }
-    }));
-
-    console.log(`Emitted friend request to user:${receiverId} and confirmation to user:${senderId}`);
-
-  } catch (error) {
-    console.error("Error handling friend request:", error);
-  }
-}
-
 
 async function handleGroupCreated(message) {
   try {
@@ -226,6 +182,78 @@ async function handleConversationDeleted(message) {
   }
 }
 
+// Xử lý chấp nhận lời mời kết bạn và tạo conversation
+async function handleFriendRequestAccepted(message) {
+  try {
+    const data = JSON.parse(message);
+    const { senderId, receiverId, conversationData } = data;
+
+    // Gửi thông báo đến người gửi lời mời ban đầu
+    const sender = `user:${senderId}`;
+    global.io.to(sender).emit("friend_request_accepted", {
+      type: "friendRequestAccepted",
+      data: conversationData
+    });
+        
+    // Gửi thông báo đến người chấp nhận lời mời
+    const receiver = `user:${receiverId}`;
+    global.io.to(receiver).emit("friend_request_accepted_self", {
+      type: "friendRequestAcceptedSelf",
+      data: conversationData
+    });
+    
+    // Tự động đăng ký cả hai người vào room conversation
+    const room = `conversation:${conversationData.conversationId}`;
+
+    // Lấy danh sách socket của mỗi người dùng
+    const senderSockets = await global.io.in(`user:${senderId}`).fetchSockets();
+    const receiverSockets = await global.io.in(`user:${receiverId}`).fetchSockets();
+
+    // Thêm các socket vào room conversation
+    for (const socket of senderSockets) {
+      socket.join(room);
+    }
+    for (const socket of receiverSockets) {
+      socket.join(room);
+    }
+    
+  } catch (error) {
+    console.error("Error handling friend request accepted:", error);
+  }
+}
+
+// Xử lý khi người dùng gửi lời mời kết bạn
+async function handleFriendRequest(message) {
+  try {
+    const data = JSON.parse(message);
+    const { senderId, receiverId, senderInfo } = data;
+    
+    // Gửi thông báo đến người nhận lời mời kết bạn
+    const receiver = `user:${receiverId}`;
+    global.io.to(receiver).emit("friend_request", {
+      type: "friendRequest",
+      data: {
+        senderId,
+        senderInfo: senderInfo || {
+          _id: senderId,
+          timestamp: new Date().toISOString()
+        }
+      }
+    });
+
+    // Gửi thông báo xác nhận đến người gửi
+    const sender = `user:${senderId}`;
+    global.io.to(sender).emit("friend_request_sent", {
+      type: "friendRequestSent",
+      data: {
+        receiverId
+      }
+    });       
+  } catch (error) {
+    console.error("Error handling friend request:", error);
+  }
+}
+
 // Khởi tạo Redis subscribers
 async function initRedisSubscribers() {
   if (isSubscribed) return;
@@ -241,16 +269,10 @@ async function initRedisSubscribers() {
   await globalSubscriber.subscribe("member_added", handleMemberAdded);
   await globalSubscriber.subscribe("member_removed", handleMemberRemoved);
   await globalSubscriber.subscribe("group_created", handleGroupCreated);
-  await globalSubscriber.subscribe(
-    "group_name_updated",
-    handleGroupNameUpdated
-  );
-  await globalSubscriber.subscribe(
-    "conversation_deleted",
-    handleConversationDeleted
-  );
+  await globalSubscriber.subscribe("group_name_updated", handleGroupNameUpdated);
+  await globalSubscriber.subscribe("conversation_deleted", handleConversationDeleted);
   await globalSubscriber.subscribe("friend_request", handleFriendRequest);
-  await globalSubscriber.subscribe("friend_request_sent_json", handleFriendRequest);
+  await globalSubscriber.subscribe("friend_request_accepted", handleFriendRequestAccepted);
 
 
   isSubscribed = true;
@@ -401,8 +423,10 @@ const setupWebSocket = (io) => {
       } catch (error) {
         console.error("Error handling disconnection:", error);
       }
-    });
+    });   
+        
   });
+
 };
 
 module.exports = setupWebSocket;

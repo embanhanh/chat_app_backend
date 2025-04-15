@@ -1,5 +1,6 @@
 require("dotenv").config();
 const User = require("../models/User");
+const Conversation = require("../models/Conversation");
 const jwt = require("jsonwebtoken");
 const { redisClient } = require("../config/redis");
 const sendEmail = require("../utils/sendEmail");
@@ -219,6 +220,77 @@ class UserService {
     friend.friends.push(userId);
 
     await Promise.all([user.save(), friend.save()]);
+
+    // Tạo cuộc trò chuyện mới giữa hai người
+    
+    const conversation = new Conversation({
+      type: "private",
+      participants: [
+        { user: userId, role: "member" },
+        { user: friendId, role: "member" }
+      ],
+      createdBy: userId,
+      unreadCount: new Map(),
+    });
+
+    await conversation.save();
+
+    // Gửi thông báo qua Redis cho WebSocket
+    await redisClient.publish(
+      "friend_request_accepted",
+      JSON.stringify({
+        senderId: friendId,  // người gửi lời mời ban đầu
+        receiverId: userId,  // người chấp nhận lời mời
+        conversationData: {
+          conversationId: conversation._id.toString(),
+          type: "private",
+          name: friend.username,
+          avatarUrl: friend.avatar || "",
+          lastMessage: {
+            messageId: "",
+            content: "Bắt đầu cuộc trò chuyện",
+            timestamp: new Date().toISOString()
+          },
+          unreadCount: 0,
+          isMuted: false,
+          isArchived: false
+        }
+      })
+    );
+
+    // Thông báo push nếu cần
+    try {
+      const admin = require("firebase-admin");
+      const tokens = friend.fcmTokens || [];
+
+      if (tokens.length > 0) {
+        const response = await admin.messaging().sendEachForMulticast({
+          tokens: tokens.map(t => t.token),
+          notification: {
+            title: `${user.username} đã chấp nhận lời mời kết bạn!`,
+            body: "Nhấn vào để bắt đầu cuộc trò chuyện.",
+          },
+          data: {
+            type: "FRIEND_REQUEST_ACCEPTED",
+            senderId: userId.toString(),
+            receiverId: friendId.toString(),
+            conversationId: conversation._id.toString(),
+            click_action: "FLUTTER_NOTIFICATION_CLICK"
+          },
+        });
+
+        if (response.failureCount > 0) {
+          console.log(`${response.successCount} gửi thành công, ${response.failureCount} thất bại`);
+        }
+      }
+    } catch (error) {
+      console.error("Push FCM error:", error);
+    }
+
+    return {
+      message: "Đã chấp nhận lời mời kết bạn thành công",
+      conversationId: conversation._id
+    };
   }
   
   // Reject friend request

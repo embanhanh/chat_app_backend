@@ -74,9 +74,14 @@ router.post("/friend-request/:id", auth, async (req, res) => {
 // Accept friend request
 router.post("/friend-request/:id/accept", auth, async (req, res) => {
   try {
-    await UserService.acceptFriendRequest(req.user._id, req.params.id);
-    res.json({ message: "Friend request accepted" });
+    const result = await UserService.acceptFriendRequest(req.user._id, req.params.id);
+    
+    res.json({ 
+      message: "Friend request accepted",
+      conversationId: result.conversationId
+    });
   } catch (error) {
+    console.error("Error accepting friend request:", error);
     res.status(400).json({ message: error.message });
   }
 });
