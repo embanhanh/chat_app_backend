@@ -271,7 +271,7 @@ class ConversationService {
   }
 
   // Add participant to group
-  static async addParticipant(conversationId, userId, newParticipantId) {
+  static async addParticipant(conversationId, userId, newParticipantIds) {
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation || conversation.type !== "group") {
@@ -287,44 +287,58 @@ class ConversationService {
       throw { message: "Chỉ admin mới có thể thêm người dùng" };
     }
 
-    // Check if user is already in the group
-    if (
-      conversation.participants.some(
-        (p) => p.user.toString() === newParticipantId.toString()
-      )
-    ) {
-      throw { message: "Người dùng đã nằm trong nhóm" };
+    // Ensure newParticipantIds is an array
+    const participantIds = Array.isArray(newParticipantIds)
+      ? newParticipantIds
+      : [newParticipantIds];
+
+    // Check for existing participants
+    for (const newParticipantId of participantIds) {
+      if (
+        conversation.participants.some(
+          (p) => p.user.toString() === newParticipantId.toString()
+        )
+      ) {
+        throw { message: `Người dùng ${newParticipantId} đã nằm trong nhóm` };
+      }
     }
 
-    const newUser = await User.findById(newParticipantId).select(
-      "username avatar"
-    );
-    if (!newUser) {
-      throw { message: "Người dùng không tồn tại" };
+    // Validate all users exist
+    const usersToAdd = [];
+    for (const newParticipantId of participantIds) {
+      const newUser = await User.findById(newParticipantId).select(
+        "username avatar"
+      );
+      if (!newUser) {
+        throw { message: `Người dùng ${newParticipantId} không tồn tại` };
+      }
+
+      usersToAdd.push({
+        id: newParticipantId,
+        userData: {
+          avatarUrl: newUser.avatar,
+          name: newUser.username,
+        },
+      });
     }
 
-    conversation.participants.push({ user: newParticipantId });
+    // Add new participants to conversation
+    usersToAdd.forEach(({ id }) => {
+      conversation.participants.push({ user: id });
+    });
+
     await conversation.save();
 
-    await RedisManager.addConversationParticipant(
-      conversationId,
-      newParticipantId
-    );
+    // Update Redis for each new participant
+    for (const { id, userData } of usersToAdd) {
+      await RedisManager.addConversationParticipant(
+        conversationId,
+        id,
+        userData
+      );
+    }
 
-    const users = {
-      avatarUrl: newUser.avatar,
-      name: newUser.username,
-    };
-
-    await RedisManager.addConversationParticipant(
-      conversationId,
-      newParticipantId,
-      {
-        avatarUrl: newUser.avatar,
-        name: newUser.username,
-      }
-    );
-    console.log(`Member added to conversation ${conversationId}:`, users);
+    return usersToAdd.map(({ userData }) => userData);
   }
 
   // Remove participant from group
