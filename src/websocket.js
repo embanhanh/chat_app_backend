@@ -13,15 +13,74 @@ async function handleNewMessage(message) {
   try {
     const data = JSON.parse(message);
     const room = `conversation:${data.conversation}`;
-    // Gửi đến tất cả clients trong room
+    console.log(room);
+    console.log("handleNewMessage is running");
+    
+    // Kiểm tra số lượng client trong room
+    const clients = await global.io.in(room).allSockets();
+    console.log(`Clients in room ${room}:`, clients.size);
+    
+    // Gửi đến tất cả clients trong room với cả 2 cách
     global.io.to(room).emit("new_message", {
       message: data.message,
-      conversationId: data.conversation, //send conversationId to client
+      conversationId: data.conversation
     });
+    
+    // Gửi cả dạng JSON string cho Postman
+    global.io.to(room).emit("new_message_json", JSON.stringify({
+      message: data.message,
+      conversationId: data.conversation
+    }));
+    
+    console.log("Message emitted to room:", room);
   } catch (error) {
     console.error("Error handling new message:", error);
   }
 }
+// Xử lý khi người dùng gửi lời mời kết bạn
+async function handleFriendRequest(message) {
+  try {
+    const data = JSON.parse(message);
+    const { senderId, receiverId, senderInfo } = data;
+    console.log("Friend request data:", data);
+
+    const receiver = `user:${receiverId}`;
+
+    // Gửi thông báo đến người nhận lời mời kết bạn
+    global.io.to(receiver).emit("friend_request", {
+      type: "friendRequest",
+      data: {
+        senderId,
+        senderInfo: senderInfo || {
+          _id: senderId,
+          timestamp: new Date().toISOString()
+        }
+      }
+    });
+
+    // Gửi thông báo xác nhận đến người gửi
+    global.io.to(`user:${senderId}`).emit("friend_request_sent", {
+      type: "friendRequestSent",
+      data: {
+        receiverId
+      }
+    });
+
+    // Gửi thêm bản dạng JSON string (để test với Postman nếu cần)
+    global.io.to(`user:${senderId}`).emit("friend_request_sent_json", JSON.stringify({
+      type: "friendRequestSent",
+      data: {
+        receiverId
+      }
+    }));
+
+    console.log(`Emitted friend request to user:${receiverId} and confirmation to user:${senderId}`);
+
+  } catch (error) {
+    console.error("Error handling friend request:", error);
+  }
+}
+
 
 async function handleGroupCreated(message) {
   try {
@@ -190,6 +249,9 @@ async function initRedisSubscribers() {
     "conversation_deleted",
     handleConversationDeleted
   );
+  await globalSubscriber.subscribe("friend_request", handleFriendRequest);
+  await globalSubscriber.subscribe("friend_request_sent_json", handleFriendRequest);
+
 
   isSubscribed = true;
   console.log("Redis subscribers initialized successfully");
@@ -222,25 +284,69 @@ const setupWebSocket = (io) => {
   // Handle socket connections
   io.on("connection", async (socket) => {
     const userId = socket.userId;
+    console.log(`User connected: ${userId}, socket ID: ${socket.id}`);
+    
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
     const reconnectDelay = 5000; // 5 seconds
 
     // Join user's room
     socket.join(`user:${userId}`);
+    console.log(`User ${userId} joined room user:${userId}`);
 
     // Update user's online status
     await UserService.updateOnlineStatus(userId, "online");
 
+    // Event handlers for testing with Postman
     socket.on("test", (data) => {
-      console.log(data);
+      console.log("Test event received:", data);
+      // Send a response back to confirm
+      socket.emit("test_response", { message: "Test received", data });
+    });
+    
+    // Testing event for direct message
+    socket.on("direct_message", async (data) => {
+      try {
+        console.log("Direct message event received:", data);
+        
+        // Send a direct message to a specific user
+        if (data.receiverId) {
+          const receiver = `user:${data.receiverId}`;
+          global.io.to(receiver).emit("direct_message", {
+            message: data.message,
+            senderId: userId
+          });
+          // Also send as JSON string for Postman testing
+          global.io.to(receiver).emit("direct_message_json", JSON.stringify({
+            message: data.message,
+            senderId: userId
+          }));
+          console.log(`Direct message sent to ${receiver}`);
+          
+          // Confirm to sender
+          socket.emit("direct_message_sent", { 
+            success: true, 
+            receiverId: data.receiverId 
+          });
+        }
+      } catch (error) {
+        console.error("Error in direct_message:", error);
+        socket.emit("error", { message: "Failed to send direct message" });
+      }
     });
 
     // Handle joining conversations
     socket.on("join_conversation", (conversationId) => {
       try {
-        socket.join(`conversation:${conversationId}`);
+        const room = `conversation:${conversationId}`;
+        socket.join(room);
         console.log(`User ${userId} joined conversation ${conversationId}`);
+        
+        // Send confirmation to client
+        socket.emit("joined_conversation", { 
+          conversationId,
+          success: true
+        });
       } catch (error) {
         console.error("Error joining conversation:", error);
         socket.emit("error", { message: "Lỗi khi tham gia cuộc trò chuyện" });

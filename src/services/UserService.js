@@ -132,26 +132,69 @@ class UserService {
       User.findById(senderId),
       User.findById(receiverId),
     ]);
-
-    if (sender._id.equals(receiver._id)) {
-      throw { message: "Không thể gửi lời mời kết bạn cho chính mình" };
-    }
-
-    if (!sender || !receiver) {
-      throw { message: "Không tìm thấy người dùng" };
-    }
-
-    if (receiver.friendRequests.includes(senderId)) {          
-      throw { message: "Đã gửi lời mời kết bạn trước đó" };
-    }
-
-    if (receiver.friends.includes(senderId)) {
-      throw { message: "Các người dùng đã là bạn bè" };
-    }
-
+  
+    // Các kiểm tra
+    if (!sender || !receiver) throw { message: "Không tìm thấy người dùng" };
+    if (sender._id.equals(receiver._id)) throw { message: "Không thể gửi cho chính mình" };
+    if (receiver.friendRequests.includes(senderId)) throw { message: "Đã gửi lời mời trước đó" };
+    if (receiver.friends.includes(senderId)) throw { message: "Đã là bạn bè" };
+  
+    // Lưu vào DB
     receiver.friendRequests.push(senderId);
     await receiver.save();
+  
+    const senderInfo = {
+      _id: sender._id,
+      username: sender.username,
+      avatar: sender.avatar || "",
+      timestamp: new Date().toISOString()
+    };
+  
+    // Gửi Realtime qua Redis
+    await redisClient.publish(
+      "friend_request",
+      JSON.stringify({ senderId, receiverId, senderInfo })
+    );
+  
+    // Push Notification
+    try {
+      const admin = require("firebase-admin");
+      const tokens = receiver.fcmTokens || [];
+  
+      if (tokens.length > 0) {
+        const response = await admin.messaging().sendEachForMulticast({
+          tokens: tokens.map(t => t.token),
+          notification: {
+            title: `${sender.username} đã gửi lời mời kết bạn!`,
+            body: "Nhấn vào để xem lời mời.",
+          },
+          data: {
+            type: "FRIEND_REQUEST",
+            senderId: senderId.toString(),
+            receiverId: receiverId.toString(),
+            click_action: "FLUTTER_NOTIFICATION_CLICK" // hoặc dùng cho React Native
+          },
+        });
+  
+        if (response.failureCount > 0) {
+          console.log(`${response.successCount} gửi thành công, ${response.failureCount} thất bại`);
+          response.responses.forEach((r, i) => {
+            if (!r.success) console.error(`Token[${i}] error:`, r.error);
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Push FCM error:", error);
+    }
+  
+    return {
+      message: "Lời mời kết bạn đã được gửi thành công!",
+      senderId,
+      receiverId
+    };
   }
+  
+  
 
   // Accept friend request
   static async acceptFriendRequest(userId, friendId) {
