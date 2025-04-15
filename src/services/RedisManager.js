@@ -85,11 +85,12 @@ class RedisManager {
   // Quản lý conversation participants
   async addConversationParticipant(conversationId, userId, userInfo) {
     try {
+      console.log(`Adding participant ${userId} to conversation ${conversationId}`);
       await this.client.sAdd(
         `conversation:${conversationId}:participants`,
         userId
       );
-
+      console.log(`Publishing member_added for conversation ${conversationId}, user ${userId}`);
       await this.client.publish(
         "member_added",
         JSON.stringify({
@@ -98,6 +99,7 @@ class RedisManager {
           newParticipantId: userId,
         })
       );
+      console.log(`Published member_added for conversation ${conversationId}`);
       return true;
     } catch (error) {
       console.error("Error adding conversation participant:", error);

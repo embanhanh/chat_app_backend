@@ -54,11 +54,15 @@ async function handleGroupCreated(message) {
 
 async function handleMemberAdded(message) {
   try {
+    console.log("Received member_added message:", message);
     const data = JSON.parse(message);
     const { conversationId, users, newParticipantId } = data;
 
-    // Phát sự kiện đến các thành viên hiện tại trong phòng
-    global.io.to(`conversation:${conversationId}`).emit("memberAdded", {
+    console.log(
+      `Emitting memberAdded for conversation ${conversationId}, new participant ${newParticipantId}`
+    );
+    const room = `conversation:${conversationId}`; // Thêm dòng này
+    global.io.to(room).emit("memberAdded", {
       type: "memberAdded",
       data: {
         conversationId,
@@ -66,7 +70,6 @@ async function handleMemberAdded(message) {
       },
     });
 
-    // Thông báo cho người dùng mới để tham gia phòng
     global.io.to(`user:${newParticipantId}`).emit("addedToConversation", {
       conversationId,
     });
@@ -175,6 +178,12 @@ async function initRedisSubscribers() {
   globalSubscriber = redisClient.duplicate();
   await globalSubscriber.connect();
 
+  globalSubscriber.on("error", (error) => {
+    console.error("Redis subscriber error:", error);
+    isSubscribed = false;
+    initRedisSubscribers();
+  });
+
   // Đăng ký các kênh
   await globalSubscriber.subscribe("new_message", handleNewMessage);
   await globalSubscriber.subscribe("message_read", handleMessageRead);
@@ -237,16 +246,20 @@ const setupWebSocket = (io) => {
     });
 
     // Handle joining conversations
-    socket.on("join_conversation", (conversationId) => {
+    socket.on("join_conversation", (payload) => {
       try {
+        const conversationId = payload.data.conversationId; // Lấy conversationId từ payload
         socket.join(`conversation:${conversationId}`);
-        console.log(`User ${userId} joined conversation ${conversationId}`);
+        console.log(
+          `User ${socket.userId} joined conversation conversation:${conversationId}`
+        );
+        console.log("Socket rooms:", socket.rooms);
       } catch (error) {
         console.error("Error joining conversation:", error);
         socket.emit("error", { message: "Lỗi khi tham gia cuộc trò chuyện" });
       }
     });
-
+    
     // Handle leaving conversations
     socket.on("leave_conversation", (conversationId) => {
       try {
