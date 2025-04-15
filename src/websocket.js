@@ -146,23 +146,6 @@ async function handleMessageEdited(message) {
   }
 }
 
-async function handleMessageReplied(message) {
-  try {
-    const data = JSON.parse(message);
-    global.io.to(`conversation:${data.conversationId}`).emit("message_replied", {
-      type: "messageReplied",
-      data: {
-        conversationId: data.conversationId,
-        messageId: data.messageId,
-        content: data.content,
-        senderId: data.senderId,
-      },
-    });
-  } catch (error) {
-    console.error("Error handling message replied:", error);
-  }
-}
-
 async function handleGroupNameUpdated(message) {
   try {
     const data = JSON.parse(message);
@@ -217,7 +200,6 @@ async function initRedisSubscribers() {
   await globalSubscriber.subscribe("message_read", handleMessageRead);
   await globalSubscriber.subscribe("message_deleted", handleMessageDeleted);
   await globalSubscriber.subscribe("message_edited", handleMessageEdited);
-  await globalSubscriber.subscribe("message_replied", handleMessageReplied);
   await globalSubscriber.subscribe("member_added", handleMemberAdded);
   await globalSubscriber.subscribe("member_removed", handleMemberRemoved);
   await globalSubscriber.subscribe("group_created", handleGroupCreated);
