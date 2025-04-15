@@ -348,6 +348,17 @@ class MessageService {
       }
     });
 
+    // Publish reply event to Redis
+    await redisClient.publish(
+      "message_replied",
+      JSON.stringify({
+        messageId: replyMessage._id,
+        conversationId: originalMessage.conversation,
+        content: replyMessage.content,
+        senderId: senderId,
+      })
+    );
+
     return replyMessage;
   }
 }
