@@ -126,13 +126,13 @@ router.post("/:conversationId/members", auth, async (req, res) => {
 });
 
 // Remove participant from group
-// [DELETE] api/conversations/:id/participants/:userId
+// [DELETE] api/conversations/:conversationId/participants/:userId
 router.delete("/:conversationId/members/:userId", auth, async (req, res) => {
   try {
     if (req.params.userId === req.user._id) {
       return res.status(400).json({ message: "Cannot remove yourself" });
     }
-    
+
     await ConversationService.removeParticipant(
       req.params.conversationId,
       req.user._id,
@@ -148,7 +148,10 @@ router.delete("/:conversationId/members/:userId", auth, async (req, res) => {
 // [DELETE] api/conversations/:conversationId/leave
 router.delete("/:conversationId/leave", auth, async (req, res) => {
   try {
-    await ConversationService.leaveConversation(req.params.conversationId, req.user._id);
+    await ConversationService.leaveConversation(
+      req.params.conversationId,
+      req.user._id
+    );
     res.json({ message: "Left conversation successfully" });
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -166,6 +169,58 @@ router.delete("/:conversationId", auth, async (req, res) => {
     res.status(200).json({ message: "Xóa cuộc trò chuyện thành công" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
+  }
+});
+
+// Set participant nickname
+// [PUT] api/conversations/:conversationId/nickname
+router.put("/:conversationId/nickname", auth, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { userId, nickname } = req.body;
+    requestedId = req.user._id;
+
+    if (!conversationId) {
+      return res.status(400).json({ message: "Conversation ID is required" });
+    }
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+    if (!nickname) {
+      return res.status(400).json({ message: "Nickname is required" });
+    }
+
+    const updatedConversation = await ConversationService.setNickname(
+      conversationId,
+      {userId, nickname},
+      requestedId
+    );
+
+    res.json(updatedConversation);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// set participant role
+// [PUT] api/conversations/:conversationId/members/:userId/role
+router.put("/:conversationId/members/:userId/role", auth, async (req, res) => {
+  try {
+    const { conversationId, userId } = req.params;
+    const { role } = req.body;
+    const requesterId = req.user.id; // Lấy từ authMiddleware
+
+    const result = await ConversationService.setRole(
+      conversationId,
+      userId,
+      role,
+      requesterId
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Error setting role:", error);
+    return res.status(error.status || 500).json({ message: error.message || "Lỗi server khi đặt vai trò" });
   }
 });
 

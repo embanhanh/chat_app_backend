@@ -197,9 +197,15 @@ class ConversationService {
       const fileUpload = await FileService.uploadToS3(avatar, "group_avatar");
       conversation.avatar = fileUpload.url;
       await conversation.save();
+
+      await RedisManager.publishGroupAvatarUpdated({
+        conversationId: conversation._id.toString(),
+        avatar: conversation.avatar,
+        updatedBy: userId,
+      });
     }
 
-    return conversation;
+    return {message: "Avatar updated", avatarUrl: conversation.avatar };
   }
 
   // Get user's conversations
@@ -271,7 +277,7 @@ class ConversationService {
   }
 
   // Add participant to group
-  static async addParticipant(conversationId, userId, newParticipantId) {
+  static async addParticipant(conversationId, userId, newParticipantIds) {
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation || conversation.type !== "group") {
@@ -287,44 +293,58 @@ class ConversationService {
       throw { message: "Chỉ admin mới có thể thêm người dùng" };
     }
 
-    // Check if user is already in the group
-    if (
-      conversation.participants.some(
-        (p) => p.user.toString() === newParticipantId.toString()
-      )
-    ) {
-      throw { message: "Người dùng đã nằm trong nhóm" };
+    // Ensure newParticipantIds is an array
+    const participantIds = Array.isArray(newParticipantIds)
+      ? newParticipantIds
+      : [newParticipantIds];
+
+    // Check for existing participants
+    for (const newParticipantId of participantIds) {
+      if (
+        conversation.participants.some(
+          (p) => p.user.toString() === newParticipantId.toString()
+        )
+      ) {
+        throw { message: `Người dùng ${newParticipantId} đã nằm trong nhóm` };
+      }
     }
 
-    const newUser = await User.findById(newParticipantId).select(
-      "username avatar"
-    );
-    if (!newUser) {
-      throw { message: "Người dùng không tồn tại" };
+    // Validate all users exist
+    const usersToAdd = [];
+    for (const newParticipantId of participantIds) {
+      const newUser = await User.findById(newParticipantId).select(
+        "username avatar"
+      );
+      if (!newUser) {
+        throw { message: `Người dùng ${newParticipantId} không tồn tại` };
+      }
+
+      usersToAdd.push({
+        id: newParticipantId,
+        userData: {
+          avatarUrl: newUser.avatar,
+          name: newUser.username,
+        },
+      });
     }
 
-    conversation.participants.push({ user: newParticipantId });
+    // Add new participants to conversation
+    usersToAdd.forEach(({ id }) => {
+      conversation.participants.push({ user: id });
+    });
+
     await conversation.save();
 
+    // Gửi danh sách tất cả user được thêm trong một lần gọi
+    const userInfos = usersToAdd.map(({ userData }) => userData);
+    const newParticipantIdsList = usersToAdd.map(({ id }) => id);
     await RedisManager.addConversationParticipant(
       conversationId,
-      newParticipantId
+      newParticipantIdsList,
+      userInfos
     );
 
-    const users = {
-      avatarUrl: newUser.avatar,
-      name: newUser.username,
-    };
-
-    await RedisManager.addConversationParticipant(
-      conversationId,
-      newParticipantId,
-      {
-        avatarUrl: newUser.avatar,
-        name: newUser.username,
-      }
-    );
-    console.log(`Member added to conversation ${conversationId}:`, users);
+    return userInfos;
   }
 
   // Remove participant from group
@@ -371,16 +391,28 @@ class ConversationService {
     await conversation.save();
 
     // Đồng bộ với Redis
+    const userInfo = {
+      name: user.username,
+      avatar: user.avatar,
+    };
+    console.log(userInfo);
+
     const redisSuccess = await RedisManager.removeConversationParticipant(
       conversationId,
-      participantId
+      participantId,
+      userInfo
     );
     if (!redisSuccess) {
       throw { message: "Lỗi đồng bộ Redis", statusCode: 500 };
     }
   }
+
   // Leave conversation
   static async leaveConversation(conversationId, userId) {
+    // Chuyển đổi conversationId và userId thành string
+    conversationId = conversationId.toString();
+    userId = userId.toString();
+
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation) {
@@ -392,11 +424,14 @@ class ConversationService {
     }
 
     // Check if user is the last admin
-    const isAdmin =
-      conversation.participants.find(
-        (p) => p.user.toString() === userId.toString()
-      )?.role === "admin";
+    const participant = conversation.participants.find(
+      (p) => p.user.toString() === userId
+    );
+    if (!participant) {
+      throw { message: "Bạn không có trong nhóm" };
+    }
 
+    const isAdmin = participant.role === "admin";
     if (isAdmin) {
       const adminCount = conversation.participants.filter(
         (p) => p.role === "admin"
@@ -404,7 +439,7 @@ class ConversationService {
       if (adminCount === 1) {
         // Promote another member to admin before leaving
         const newAdmin = conversation.participants.find(
-          (p) => p.role !== "admin" && p.user.toString() !== userId.toString()
+          (p) => p.role !== "admin" && p.user.toString() !== userId
         );
 
         if (newAdmin) {
@@ -415,14 +450,56 @@ class ConversationService {
       }
     }
 
+    // Lấy danh sách participantIds trước khi xóa user
+    const participantIds = conversation.participants
+      .map((p) => p.user.toString())
+      .filter((id) => id !== userId);
+
+    // Xóa user khỏi participants trong database
     conversation.participants = conversation.participants.filter(
-      (p) => p.user.toString() !== userId.toString()
+      (p) => p.user.toString() !== userId
     );
 
+    // Nếu không còn thành viên, xóa cuộc hội thoại
     if (conversation.participants.length === 0) {
       await conversation.remove();
+
+      // Gọi RedisManager để xuất bản sự kiện conversation_deleted
+      const redisSuccess = await RedisManager.leaveConversationParticipant(
+        conversationId,
+        userId,
+        null, // userInfo không cần thiết vì cuộc hội thoại đã bị xóa
+        true, // isLastParticipant = true
+        participantIds
+      );
+      if (!redisSuccess) {
+        throw { message: "Lỗi đồng bộ Redis" };
+      }
     } else {
       await conversation.save();
+
+      // Lấy thông tin user để tạo userInfo
+      const user = await User.findById(userId).select("username avatar");
+      if (!user) {
+        throw { message: "Người dùng không tồn tại", statusCode: 404 };
+      }
+
+      const userInfo = {
+        name: user.username,
+        avatar: user.avatar,
+      };
+
+      // Gọi RedisManager để xóa user và xuất bản sự kiện leave_conversation
+      const redisSuccess = await RedisManager.leaveConversationParticipant(
+        conversationId,
+        userId,
+        userInfo,
+        false, // isLastParticipant = false
+        participantIds
+      );
+      if (!redisSuccess) {
+        throw { message: "Lỗi đồng bộ Redis" };
+      }
     }
   }
 
@@ -518,6 +595,119 @@ class ConversationService {
     }
 
     return true;
+  }
+
+  static async setNickname(conversationId, { userId, nickname }, requesterId) {
+    try {
+      // Tìm cuộc trò chuyện
+      const conversation = await Conversation.findById(conversationId);
+      if (!conversation) {
+        throw { message: "Cuộc trò chuyện không tồn tại", statusCode: 404 };
+      }
+
+      // Kiểm tra user gọi API có trong cuộc trò chuyện không
+      const requester = conversation.participants.find(
+        (p) => p.user.toString() === requesterId.toString()
+      );
+      if (!requester) {
+        throw {
+          message: "Bạn không có trong cuộc trò chuyện này",
+          statusCode: 403,
+        };
+      }
+
+      // Kiểm tra user cần đặt biệt danh có trong cuộc trò chuyện không
+      const targetParticipant = conversation.participants.find(
+        (p) => p.user.toString() === userId.toString()
+      );
+      if (!targetParticipant) {
+        throw {
+          message: "Thành viên không tồn tại trong nhóm",
+          statusCode: 404,
+        };
+      }
+
+      // Kiểm tra quyền: Chỉ admin hoặc chính user đó có thể đặt biệt danh
+      if (requester.role !== "admin" && requesterId !== userId) {
+        throw { message: "Bạn không có quyền đặt biệt danh", statusCode: 403 };
+      }
+
+      // Cập nhật biệt danh
+      targetParticipant.nickname = nickname || null; // Nếu nickname rỗng thì xóa biệt danh
+      await conversation.save();
+
+      // Xuất bản sự kiện qua Redis để thông báo cho các client
+      const redisSuccess = await RedisManager.publishNicknameUpdate(
+        conversationId,
+        userId,
+        nickname || null
+      );
+      if (!redisSuccess) {
+        throw { message: "Lỗi đồng bộ Redis", statusCode: 500 };
+      }
+
+      // Trả về phản hồi thành công
+      return { message: "Nickname updated" };
+    } catch (error) {
+      console.error("Error setting nickname:", error);
+      throw error; // Ném lỗi để xử lý ở tầng gọi hàm
+    }
+  }
+
+  static async setRole(conversationId, userId, role, requesterId) {
+    // Kiểm tra role hợp lệ
+    if (!["admin", "member"].includes(role)) {
+      throw { status: 400, message: "Vai trò không hợp lệ, phải là 'admin' hoặc 'member'" };
+    }
+
+    // Tìm cuộc trò chuyện
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      throw { status: 404, message: "Cuộc trò chuyện không tồn tại" };
+    }
+
+    // Kiểm tra user gọi API có trong cuộc trò chuyện và là admin không
+    const requester = conversation.participants.find(
+      (p) => p.user.toString() === requesterId.toString()
+    );
+    if (!requester) {
+      throw { status: 403, message: "Bạn không có trong cuộc trò chuyện này" };
+    }
+    if (requester.role !== "admin") {
+      throw { status: 403, message: "Chỉ admin mới có thể đặt vai trò" };
+    }
+
+    // Kiểm tra user cần đặt vai trò có trong cuộc trò chuyện không
+    const targetParticipant = conversation.participants.find(
+      (p) => p.user.toString() === userId.toString()
+    );
+    if (!targetParticipant) {
+      throw { status: 404, message: "Thành viên không tồn tại trong nhóm" };
+    }
+
+    // Kiểm tra số lượng admin
+    const adminCount = conversation.participants.filter(
+      (p) => p.role === "admin"
+    ).length;
+    if (targetParticipant.role === "admin" && role === "member" && adminCount === 1) {
+      throw { status: 400, message: "Không thể xóa vai trò admin của admin cuối cùng" };
+    }
+
+    // Cập nhật vai trò
+    targetParticipant.role = role;
+    await conversation.save();
+
+    // Xuất bản sự kiện qua Redis để thông báo cho các client
+    const redisSuccess = await RedisManager.publishRoleUpdate(
+      conversationId,
+      userId,
+      role
+    );
+    if (!redisSuccess) {
+      throw { status: 500, message: "Lỗi đồng bộ Redis" };
+    }
+
+    return { message: "Role updated" };
   }
 }
 
