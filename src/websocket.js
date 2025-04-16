@@ -230,7 +230,6 @@ async function handleGroupAvatarUpdated(message) {
   }
 }
 
-
 async function handleConversationDeleted(message) {
   try {
     const data = JSON.parse(message);
@@ -250,6 +249,55 @@ async function handleConversationDeleted(message) {
     });
   } catch (error) {
     console.error("Error handling conversation deleted:", error);
+  }
+}
+
+async function handleNicknameUpdated(message) {
+  try {
+    console.log("Received nickname_updated message:", message);
+    const data = JSON.parse(message);
+    const { conversationId, userId, nickname } = data;
+
+    console.log(
+      `Emitting nicknameUpdated for conversation ${conversationId}, user ${userId}`
+    );
+    const room = `conversation:${conversationId}`;
+
+    // Gửi thông báo đến tất cả thành viên trong room conversation:${conversationId}
+    global.io.to(room).emit("nicknameUpdated", {
+      type: "nicknameUpdated",
+      data: {
+        conversationId,
+        userId,
+        nickname,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling nickname updated:", error);
+  }
+}
+
+async function handleRoleUpdated(message) {
+  try {
+    console.log("Received role_updated message:", message);
+    const data = JSON.parse(message);
+    const { conversationId, userId, role } = data;
+
+    console.log(
+      `Emitting roleUpdated for conversation ${conversationId}, user ${userId}`
+    );
+    const room = `conversation:${conversationId}`;
+
+    global.io.to(room).emit("roleUpdated", {
+      type: "roleUpdated",
+      data: {
+        conversationId,
+        userId,
+        role,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling role updated:", error);
   }
 }
 
@@ -290,6 +338,8 @@ async function initRedisSubscribers() {
     "conversation_deleted",
     handleConversationDeleted
   );
+  await globalSubscriber.subscribe("nickname_updated", handleNicknameUpdated);
+  await globalSubscriber.subscribe("role_updated", handleRoleUpdated);
 
   isSubscribed = true;
   console.log("Redis subscribers initialized successfully");

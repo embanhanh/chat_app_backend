@@ -34,6 +34,10 @@ const conversationSchema = new mongoose.Schema(
           enum: ["admin", "member"],
           default: "member",
         },
+        nickname: {
+          type: String,
+          default: null,
+        },
         lastRead: {
           type: Date,
           default: Date.now,

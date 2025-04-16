@@ -92,23 +92,27 @@ class RedisManager {
   }
 
   // Quản lý conversation participants
-  async addConversationParticipant(conversationId, newParticipantIds, userInfos) {
+  async addConversationParticipant(
+    conversationId,
+    newParticipantIds,
+    userInfos
+  ) {
     try {
       console.log(
         `Adding participants ${newParticipantIds} to conversation ${conversationId}`
       );
-  
+
       const participantIds = Array.isArray(newParticipantIds)
         ? newParticipantIds
         : [newParticipantIds];
-      
+
       // Sử dụng multi để batch các lệnh Redis
       const multi = this.client.multi();
       for (const userId of participantIds) {
         multi.sAdd(`conversation:${conversationId}:participants`, userId);
       }
       await multi.exec();
-  
+
       console.log(
         `Publishing member_added for conversation ${conversationId}, users ${participantIds}`
       );
@@ -127,7 +131,7 @@ class RedisManager {
       return false;
     }
   }
-  
+
   async removeConversationParticipant(conversationId, userId, userInfo) {
     try {
       // Xóa userId khỏi tập hợp participants
@@ -153,10 +157,18 @@ class RedisManager {
     }
   }
 
-  async leaveConversationParticipant(conversationId, userId, userInfo, isLastParticipant = false, participantIds = []) {
+  async leaveConversationParticipant(
+    conversationId,
+    userId,
+    userInfo,
+    isLastParticipant = false,
+    participantIds = []
+  ) {
     try {
       // Log để debug
-      console.log(`leaveConversationParticipant: conversationId=${conversationId}, userId=${userId}`);
+      console.log(
+        `leaveConversationParticipant: conversationId=${conversationId}, userId=${userId}`
+      );
 
       // Kiểm tra kiểu dữ liệu
       if (typeof conversationId !== "string" || typeof userId !== "string") {
@@ -164,7 +176,10 @@ class RedisManager {
       }
 
       // Xóa userId khỏi tập hợp participants
-      await this.client.sRem(`conversation:${conversationId}:participants`, userId);
+      await this.client.sRem(
+        `conversation:${conversationId}:participants`,
+        userId
+      );
 
       if (isLastParticipant) {
         // Xuất bản sự kiện conversation_deleted nếu đây là thành viên cuối cùng
@@ -172,10 +187,13 @@ class RedisManager {
           "conversation_deleted",
           JSON.stringify({
             conversationId,
-            participantIds: participantIds.length > 0 ? participantIds : [userId],
+            participantIds:
+              participantIds.length > 0 ? participantIds : [userId],
           })
         );
-        console.log(`Published conversation_deleted: conversationId=${conversationId}`);
+        console.log(
+          `Published conversation_deleted: conversationId=${conversationId}`
+        );
       } else {
         // Xuất bản sự kiện leave_conversation
         await this.client.publish(
@@ -186,7 +204,9 @@ class RedisManager {
             userInfo,
           })
         );
-        console.log(`Published leave_conversation: conversationId=${conversationId}, userId=${userId}`);
+        console.log(
+          `Published leave_conversation: conversationId=${conversationId}, userId=${userId}`
+        );
       }
 
       return true;
@@ -236,7 +256,6 @@ class RedisManager {
       throw error;
     }
   }
-
 
   async deleteConversationData(conversationId, participantIds) {
     try {
@@ -291,6 +310,51 @@ class RedisManager {
       return true;
     } catch (error) {
       console.error("Error removing user session:", error);
+      return false;
+    }
+  }
+
+  async publishNicknameUpdate(conversationId, userId, nickname) {
+    try {
+      console.log(
+        `Publishing nickname_updated for conversation ${conversationId}, user ${userId}`
+      );
+      await this.client.publish(
+        "nickname_updated",
+        JSON.stringify({
+          conversationId,
+          userId,
+          nickname,
+        })
+      );
+      console.log(
+        `Published nickname_updated for conversation ${conversationId}`
+      );
+      return true;
+    } catch (error) {
+      console.error("Error publishing nickname update:", error);
+      return false;
+    }
+  }
+
+  // Quản lý role update
+  async publishRoleUpdate(conversationId, userId, role) {
+    try {
+      console.log(
+        `Publishing role_updated for conversation ${conversationId}, user ${userId}`
+      );
+      await this.client.publish(
+        "role_updated",
+        JSON.stringify({
+          conversationId,
+          userId,
+          role,
+        })
+      );
+      console.log(`Published role_updated for conversation ${conversationId}`);
+      return true;
+    } catch (error) {
+      console.error("Error publishing role update:", error);
       return false;
     }
   }

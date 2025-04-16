@@ -205,7 +205,7 @@ class ConversationService {
       });
     }
 
-    return conversation;
+    return {message: "Avatar updated", avatarUrl: conversation.avatar };
   }
 
   // Get user's conversations
@@ -595,6 +595,119 @@ class ConversationService {
     }
 
     return true;
+  }
+
+  static async setNickname(conversationId, { userId, nickname }, requesterId) {
+    try {
+      // Tìm cuộc trò chuyện
+      const conversation = await Conversation.findById(conversationId);
+      if (!conversation) {
+        throw { message: "Cuộc trò chuyện không tồn tại", statusCode: 404 };
+      }
+
+      // Kiểm tra user gọi API có trong cuộc trò chuyện không
+      const requester = conversation.participants.find(
+        (p) => p.user.toString() === requesterId.toString()
+      );
+      if (!requester) {
+        throw {
+          message: "Bạn không có trong cuộc trò chuyện này",
+          statusCode: 403,
+        };
+      }
+
+      // Kiểm tra user cần đặt biệt danh có trong cuộc trò chuyện không
+      const targetParticipant = conversation.participants.find(
+        (p) => p.user.toString() === userId.toString()
+      );
+      if (!targetParticipant) {
+        throw {
+          message: "Thành viên không tồn tại trong nhóm",
+          statusCode: 404,
+        };
+      }
+
+      // Kiểm tra quyền: Chỉ admin hoặc chính user đó có thể đặt biệt danh
+      if (requester.role !== "admin" && requesterId !== userId) {
+        throw { message: "Bạn không có quyền đặt biệt danh", statusCode: 403 };
+      }
+
+      // Cập nhật biệt danh
+      targetParticipant.nickname = nickname || null; // Nếu nickname rỗng thì xóa biệt danh
+      await conversation.save();
+
+      // Xuất bản sự kiện qua Redis để thông báo cho các client
+      const redisSuccess = await RedisManager.publishNicknameUpdate(
+        conversationId,
+        userId,
+        nickname || null
+      );
+      if (!redisSuccess) {
+        throw { message: "Lỗi đồng bộ Redis", statusCode: 500 };
+      }
+
+      // Trả về phản hồi thành công
+      return { message: "Nickname updated" };
+    } catch (error) {
+      console.error("Error setting nickname:", error);
+      throw error; // Ném lỗi để xử lý ở tầng gọi hàm
+    }
+  }
+
+  static async setRole(conversationId, userId, role, requesterId) {
+    // Kiểm tra role hợp lệ
+    if (!["admin", "member"].includes(role)) {
+      throw { status: 400, message: "Vai trò không hợp lệ, phải là 'admin' hoặc 'member'" };
+    }
+
+    // Tìm cuộc trò chuyện
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      throw { status: 404, message: "Cuộc trò chuyện không tồn tại" };
+    }
+
+    // Kiểm tra user gọi API có trong cuộc trò chuyện và là admin không
+    const requester = conversation.participants.find(
+      (p) => p.user.toString() === requesterId.toString()
+    );
+    if (!requester) {
+      throw { status: 403, message: "Bạn không có trong cuộc trò chuyện này" };
+    }
+    if (requester.role !== "admin") {
+      throw { status: 403, message: "Chỉ admin mới có thể đặt vai trò" };
+    }
+
+    // Kiểm tra user cần đặt vai trò có trong cuộc trò chuyện không
+    const targetParticipant = conversation.participants.find(
+      (p) => p.user.toString() === userId.toString()
+    );
+    if (!targetParticipant) {
+      throw { status: 404, message: "Thành viên không tồn tại trong nhóm" };
+    }
+
+    // Kiểm tra số lượng admin
+    const adminCount = conversation.participants.filter(
+      (p) => p.role === "admin"
+    ).length;
+    if (targetParticipant.role === "admin" && role === "member" && adminCount === 1) {
+      throw { status: 400, message: "Không thể xóa vai trò admin của admin cuối cùng" };
+    }
+
+    // Cập nhật vai trò
+    targetParticipant.role = role;
+    await conversation.save();
+
+    // Xuất bản sự kiện qua Redis để thông báo cho các client
+    const redisSuccess = await RedisManager.publishRoleUpdate(
+      conversationId,
+      userId,
+      role
+    );
+    if (!redisSuccess) {
+      throw { status: 500, message: "Lỗi đồng bộ Redis" };
+    }
+
+    return { message: "Role updated" };
   }
 }
 
