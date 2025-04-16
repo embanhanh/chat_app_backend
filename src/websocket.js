@@ -69,11 +69,15 @@ async function handleGroupCreated(message) {
 
 async function handleMemberAdded(message) {
   try {
+    console.log("Received member_added message:", message);
     const data = JSON.parse(message);
     const { conversationId, users, newParticipantId } = data;
 
-    // Phát sự kiện đến các thành viên hiện tại trong phòng
-    global.io.to(`conversation:${conversationId}`).emit("memberAdded", {
+    console.log(
+      `Emitting memberAdded for conversation ${conversationId}, new participant ${newParticipantId}`
+    );
+    const room = `conversation:${conversationId}`; // Thêm dòng này
+    global.io.to(room).emit("memberAdded", {
       type: "memberAdded",
       data: {
         conversationId,
@@ -81,7 +85,6 @@ async function handleMemberAdded(message) {
       },
     });
 
-    // Thông báo cho người dùng mới để tham gia phòng
     global.io.to(`user:${newParticipantId}`).emit("addedToConversation", {
       conversationId,
     });
@@ -182,85 +185,100 @@ async function handleConversationDeleted(message) {
   }
 }
 
-// Xử lý chấp nhận lời mời kết bạn và tạo conversation
-async function handleFriendRequestAccepted(message) {
-  try {
-    const data = JSON.parse(message);
-    const { senderId, receiverId, conversationData } = data;
-
-    // Gửi thông báo đến người gửi lời mời ban đầu
-    const sender = `user:${senderId}`;
-    global.io.to(sender).emit("friend_request_accepted", {
-      type: "friendRequestAccepted",
-      data: conversationData
-    });
-        
-    // Gửi thông báo đến người chấp nhận lời mời
-    const receiver = `user:${receiverId}`;
-    global.io.to(receiver).emit("friend_request_accepted_self", {
-      type: "friendRequestAcceptedSelf",
-      data: conversationData
-    });
-    
-    // Tự động đăng ký cả hai người vào room conversation
-    const room = `conversation:${conversationData.conversationId}`;
-
-    // Lấy danh sách socket của mỗi người dùng
-    const senderSockets = await global.io.in(`user:${senderId}`).fetchSockets();
-    const receiverSockets = await global.io.in(`user:${receiverId}`).fetchSockets();
-
-    // Thêm các socket vào room conversation
-    for (const socket of senderSockets) {
-      socket.join(room);
-    }
-    for (const socket of receiverSockets) {
-      socket.join(room);
-    }
-    
-  } catch (error) {
-    console.error("Error handling friend request accepted:", error);
-  }
-}
-
-// Xử lý khi người dùng gửi lời mời kết bạn
+// Xử lý lời mời kết bạn
 async function handleFriendRequest(message) {
   try {
     const data = JSON.parse(message);
     const { senderId, receiverId, senderInfo } = data;
-    
-    // Gửi thông báo đến người nhận lời mời kết bạn
-    const receiver = `user:${receiverId}`;
-    global.io.to(receiver).emit("friend_request", {
-      type: "friendRequest",
-      data: {
-        senderId,
-        senderInfo: senderInfo || {
-          _id: senderId,
-          timestamp: new Date().toISOString()
-        }
-      }
-    });
 
-    // Gửi thông báo xác nhận đến người gửi
-    const sender = `user:${senderId}`;
-    global.io.to(sender).emit("friend_request_sent", {
+    const receiver = `user:${receiverId}`;
+    const clients = await global.io.in(receiver).allSockets();
+
+    if (clients.size === 0) {
+      // Lưu lời mời vào Redis nếu receiver offline
+      await redisClient.lPush(
+        `pending_friend_requests:${receiverId}`,
+        JSON.stringify({ senderId, senderInfo, timestamp: new Date().toISOString() })
+      );      
+    } else {
+      // Gửi thông báo tới receiver
+      global.io.to(receiver).emit("friend_request", {
+        type: "friendRequest",
+        data: {
+          senderId,
+          senderInfo: {
+            _id: senderInfo._id,
+            username: senderInfo.username,
+            avatar: senderInfo.avatar || "",
+            timestamp: senderInfo.timestamp || new Date().toISOString(),
+          },
+        },
+      });      
+    }
+
+    // Gửi xác nhận tới sender
+    const sender = `user:${senderId}`;    
+    global.io.to(sender).emit("friend_request", {
       type: "friendRequestSent",
       data: {
-        receiverId
-      }
-    });       
+        receiverId,
+        timestamp: senderInfo.timestamp || new Date().toISOString(),
+      },
+    });    
   } catch (error) {
-    console.error("Error handling friend request:", error);
+    console.error("Error in handleFriendRequest:", error);
+  }
+}
+
+// Xử lý chấp nhận lời mời kết bạn
+async function handleFriendRequestAccepted(message) {
+  try {
+    const data = JSON.parse(message);
+    const { senderId, receiverId, conversationSenderData, conversationReceiverData } = data;
+
+    const receiverRoom = `user:${receiverId}`;
+    const clients = await global.io.in(receiverRoom).allSockets();
+
+    if (clients.size > 0) {      
+      global.io.to(receiverRoom).emit("friend_request_accepted", {
+        type: "friendRequestAccepted",
+        data: {
+          senderId,
+          conversationSenderData,
+        },
+      });
+    } else {
+      // Lưu thông báo vào Redis nếu receiver offline
+      await redisClient.lPush(
+        `pending_friend_request_accepted:${receiverId}`,
+        JSON.stringify({ senderId, conversationSenderData })
+      );
+    }
+
+    // Gửi xác nhận tới sender
+    const senderRoom = `user:${senderId}`;      
+    global.io.to(senderRoom).emit("friend_request_accepted", {
+      type: "friendRequestAccepted",
+      data: { receiverId, conversationReceiverData },
+    });
+  } catch (error) {
+    console.error("Error in handleFriendRequestAccepted:", error);
   }
 }
 
 // Khởi tạo Redis subscribers
 async function initRedisSubscribers() {
   if (isSubscribed) return;
-
+  
   console.log("Initializing Redis subscribers...");
   globalSubscriber = redisClient.duplicate();
   await globalSubscriber.connect();
+
+  globalSubscriber.on("error", (error) => {
+    console.error("Redis subscriber error:", error);
+    isSubscribed = false;
+    initRedisSubscribers();
+  });
 
   // Đăng ký các kênh
   await globalSubscriber.subscribe("new_message", handleNewMessage);
@@ -273,7 +291,6 @@ async function initRedisSubscribers() {
   await globalSubscriber.subscribe("conversation_deleted", handleConversationDeleted);
   await globalSubscriber.subscribe("friend_request", handleFriendRequest);
   await globalSubscriber.subscribe("friend_request_accepted", handleFriendRequestAccepted);
-
 
   isSubscribed = true;
   console.log("Redis subscribers initialized successfully");
@@ -312,12 +329,50 @@ const setupWebSocket = (io) => {
     const maxReconnectAttempts = 5;
     const reconnectDelay = 5000; // 5 seconds
 
+
+
     // Join user's room
     socket.join(`user:${userId}`);
     console.log(`User ${userId} joined room user:${userId}`);
 
     // Update user's online status
     await UserService.updateOnlineStatus(userId, "online");
+
+    // Gửi các lời mời pending cho user
+    const pendingRequests = await redisClient.lRange(
+      `pending_friend_requests:${socket.userId}`,
+      0,
+      -1
+    );
+    if (pendingRequests.length > 0) {
+      for (const request of pendingRequests) {
+        const { senderId, senderInfo } = JSON.parse(request);
+        socket.emit("friend_request", {
+          type: "friendRequest",
+          data: { senderId, senderInfo },
+        });
+        console.log(`Sent pending friend_request to ${socket.userId}`);
+      }
+      await redisClient.del(`pending_friend_requests:${socket.userId}`);
+    }
+    
+    // Gửi các thông báo chấp nhận kết bạn pending
+    const pendingAccepted = await redisClient.lRange(
+      `pending_friend_request_accepted:${socket.userId}`,
+      0,
+      -1
+    );
+    if (pendingAccepted.length > 0) {
+      for (const accepted of pendingAccepted) {
+        const { senderId, conversationData } = JSON.parse(accepted);
+        socket.emit("friend_request_accepted", {
+          type: "friendRequestAccepted",
+          data: { senderId, conversationData },
+        });
+        console.log(`Sent pending friend_request_accepted to ${socket.userId}`);
+      }
+      await redisClient.del(`pending_friend_request_accepted:${socket.userId}`);
+    }
 
     // Event handlers for testing with Postman
     socket.on("test", (data) => {
@@ -358,23 +413,26 @@ const setupWebSocket = (io) => {
     });
 
     // Handle joining conversations
-    socket.on("join_conversation", (conversationId) => {
+    socket.on("join_conversation", (payload) => {
       try {
-        const room = `conversation:${conversationId}`;
-        socket.join(room);
-        console.log(`User ${userId} joined conversation ${conversationId}`);
-        
+        const conversationId = payload.data.conversationId; // Lấy conversationId từ payload
+        socket.join(`conversation:${conversationId}`);
+
         // Send confirmation to client
         socket.emit("joined_conversation", { 
           conversationId,
           success: true
         });
+        console.log(
+          `User ${socket.userId} joined conversation conversation:${conversationId}`
+        );
+        console.log("Socket rooms:", socket.rooms);
       } catch (error) {
         console.error("Error joining conversation:", error);
         socket.emit("error", { message: "Lỗi khi tham gia cuộc trò chuyện" });
       }
     });
-
+    
     // Handle leaving conversations
     socket.on("leave_conversation", (conversationId) => {
       try {

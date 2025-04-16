@@ -127,169 +127,273 @@ class UserService {
     return user.friendRequests;
   }
 
-  // Send friend request
   static async sendFriendRequest(senderId, receiverId) {
+    // Lấy thông tin sender và receiver
     const [sender, receiver] = await Promise.all([
-      User.findById(senderId),
-      User.findById(receiverId),
+      User.findById(senderId).select("username avatar fcmTokens"),
+      User.findById(receiverId).select("friendRequests friends fcmTokens"),
     ]);
-  
-    // Các kiểm tra
-    if (!sender || !receiver) throw { message: "Không tìm thấy người dùng" };
-    if (sender._id.equals(receiver._id)) throw { message: "Không thể gửi cho chính mình" };
-    if (receiver.friendRequests.includes(senderId)) throw { message: "Đã gửi lời mời trước đó" };
-    if (receiver.friends.includes(senderId)) throw { message: "Đã là bạn bè" };
-  
-    // Lưu vào DB
+
+    // Kiểm tra điều kiện
+    if (!sender || !receiver) {
+      throw { message: "Không tìm thấy người dùng", status: 404 };
+    }
+    if (sender._id.equals(receiver._id)) {
+      throw { message: "Không thể gửi lời mời cho chính mình", status: 400 };
+    }
+    if (receiver.friendRequests.includes(senderId)) {
+      throw { message: "Đã gửi lời mời trước đó", status: 400 };
+    }
+    if (receiver.friends.includes(senderId)) {
+      throw { message: "Đã là bạn bè", status: 400 };
+    }
+
+    // Lưu lời mời vào friendRequests của receiver
     receiver.friendRequests.push(senderId);
     await receiver.save();
-  
+
+    // Chuẩn bị thông tin sender
     const senderInfo = {
-      _id: sender._id,
+      _id: sender._id.toString(),
       username: sender.username,
       avatar: sender.avatar || "",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
-  
-    // Gửi Realtime qua Redis
-    await redisClient.publish(
-      "friend_request",
-      JSON.stringify({ senderId, receiverId, senderInfo })
-    );
-  
-    // Push Notification
-    try {
-      const admin = require("firebase-admin");
-      const tokens = receiver.fcmTokens || [];
-  
-      if (tokens.length > 0) {
-        const response = await admin.messaging().sendEachForMulticast({
-          tokens: tokens.map(t => t.token),
+
+    // Gửi thông báo đẩy FCM tới receiver
+    let pushStatus = "no_tokens";
+    if (receiver.fcmTokens?.length > 0) {
+      try {
+        const message = {
+          tokens: receiver.fcmTokens.map((t) => t.token),
           notification: {
-            title: `${sender.username} đã gửi lời mời kết bạn!`,
-            body: "Nhấn vào để xem lời mời.",
+            title: "Lời mời kết bạn mới",
+            body: `${sender.username} đã gửi bạn một lời mời kết bạn!`,
           },
           data: {
             type: "FRIEND_REQUEST",
             senderId: senderId.toString(),
             receiverId: receiverId.toString(),
-            click_action: "FLUTTER_NOTIFICATION_CLICK" // hoặc dùng cho React Native
+            senderUsername: sender.username,
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
           },
-        });
-  
-        if (response.failureCount > 0) {
-          console.log(`${response.successCount} gửi thành công, ${response.failureCount} thất bại`);
-          response.responses.forEach((r, i) => {
-            if (!r.success) console.error(`Token[${i}] error:`, r.error);
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+              },
+            },
+          },
+          android: {
+            priority: "high",
+          },
+        };
+
+        const response = await admin.messaging().sendEachForMulticast(message);
+        const successCount = response.successCount;
+        const failureCount = response.failureCount;
+
+        // Xóa token không hợp lệ
+        if (failureCount > 0) {
+          const failedTokens = [];
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success) {
+              failedTokens.push(receiver.fcmTokens[idx].token);
+            }
           });
+          receiver.fcmTokens = receiver.fcmTokens.filter(
+            (t) => !failedTokens.includes(t.token)
+          );
+          await receiver.save();
         }
+
+        pushStatus = successCount > 0 ? "sent" : "failed";
+        console.log(
+          `FCM to ${receiverId}: ${successCount} success, ${failureCount} failed`
+        );
+      } catch (error) {
+        console.error("FCM push error:", error);
+        pushStatus = "failed";
       }
-    } catch (error) {
-      console.error("Push FCM error:", error);
+    } else {
+      console.log(`No FCM tokens found for receiver: ${receiverId}`);
     }
-  
+
+    // Publish thông điệp tới Redis cho WebSocket
+    try {
+      await redisClient.publish(
+        "friend_request",
+        JSON.stringify({ senderId, receiverId, senderInfo })
+      );
+      console.log(`Published friend_request for ${senderId} to ${receiverId}`);
+    } catch (error) {
+      console.error("Redis publish error:", error);
+    }
+
+    // Trả về response cho sender
     return {
       message: "Lời mời kết bạn đã được gửi thành công!",
       senderId,
-      receiverId
+      receiverId,
+      senderInfo,
+      deliveryStatus: {
+        websocket: "pending", // Sẽ được cập nhật qua WebSocket
+        push: pushStatus,
+      },
     };
   }
-  
-  
 
+  
   // Accept friend request
   static async acceptFriendRequest(userId, friendId) {
+    // Lấy thông tin user và friend với các trường cần thiết
     const [user, friend] = await Promise.all([
-      User.findById(userId),
-      User.findById(friendId),
+      User.findById(userId).select("username friendRequests friends fcmTokens"),
+      User.findById(friendId).select("username avatar friends fcmTokens"),
     ]);
 
+    // Kiểm tra sự tồn tại của user và friend
     if (!user || !friend) {
-      throw { message: "Không tìm thấy người dùng" };
+      throw { message: "Không tìm thấy người dùng", status: 404 };
     }
 
+    // Kiểm tra lời mời kết bạn
     if (!user.friendRequests.includes(friendId)) {
-      throw { message: "Không tìm thấy lời mời kết bạn" };
+      throw { message: "Không tìm thấy lời mời kết bạn", status: 400 };
     }
 
-    // Remove friend request and add to friends list for both users
+    // Kiểm tra xem đã là bạn bè chưa
+    if (user.friends.includes(friendId) || friend.friends.includes(userId)) {
+      throw { message: "Đã là bạn bè", status: 400 };
+    }
+
+    // Cập nhật danh sách bạn bè và xóa lời mời
     user.friendRequests = user.friendRequests.filter(
       (id) => id.toString() !== friendId
     );
     user.friends.push(friendId);
     friend.friends.push(userId);
 
+    // Lưu thay đổi đồng thời
     await Promise.all([user.save(), friend.save()]);
 
-    // Tạo cuộc trò chuyện mới giữa hai người
-    
+    // Tạo cuộc trò chuyện mới
     const conversation = new Conversation({
       type: "private",
       participants: [
         { user: userId, role: "member" },
-        { user: friendId, role: "member" }
+        { user: friendId, role: "member" },
       ],
       createdBy: userId,
       unreadCount: new Map(),
+      createdAt: new Date(),
     });
 
     await conversation.save();
 
-    // Gửi thông báo qua Redis cho WebSocket
-    await redisClient.publish(
-      "friend_request_accepted",
-      JSON.stringify({
-        senderId: friendId,  // người gửi lời mời ban đầu
-        receiverId: userId,  // người chấp nhận lời mời
-        conversationData: {
-          conversationId: conversation._id.toString(),
-          type: "private",
-          name: friend.username,
-          avatarUrl: friend.avatar || "",
-          lastMessage: {
-            messageId: "",
-            content: "Bắt đầu cuộc trò chuyện",
-            timestamp: new Date().toISOString()
-          },
-          unreadCount: 0,
-          isMuted: false,
-          isArchived: false
-        }
-      })
-    );
+    // Chuẩn bị dữ liệu thông báo
+    const conversationSenderData = {
+      conversationId: conversation._id.toString(),
+      type: "private",
+      name: friend.username, // Tên hiển thị cho user
+      avatarUrl: friend.avatar || "",
+      lastMessage: {
+        messageId: "",
+        content: "Bắt đầu cuộc trò chuyện",
+        timestamp: new Date().toISOString(),
+      },
+      unreadCount: 0,
+      isMuted: false,
+      isArchived: false,
+    };
 
-    // Thông báo push nếu cần
+    const conversationReceiverData = {
+      ...conversationSenderData,
+      name: user.username,
+      avatarUrl: user.avatar || "",
+    };
+
+    // Gửi thông báo qua Redis cho WebSocket tới cả hai user
     try {
-      const admin = require("firebase-admin");
-      const tokens = friend.fcmTokens || [];
+      await redisClient.publish(
+        "friend_request_accepted",
+        JSON.stringify({
+          senderId: userId, // Người chấp nhận
+          receiverId: friendId, // Người gửi lời mời ban đầu
+          conversationSenderData,
+          conversationReceiverData,
+        })
+      );      
+    } catch (error) {
+      console.error("Redis publish error:", error);
+    }
 
-      if (tokens.length > 0) {
-        const response = await admin.messaging().sendEachForMulticast({
-          tokens: tokens.map(t => t.token),
+    // Gửi thông báo đẩy FCM cho friend
+    let pushStatus = "no_tokens";
+    if (friend.fcmTokens?.length > 0) {
+      try {
+        const message = {
+          tokens: friend.fcmTokens.map((t) => t.token),
           notification: {
-            title: `${user.username} đã chấp nhận lời mời kết bạn!`,
-            body: "Nhấn vào để bắt đầu cuộc trò chuyện.",
+            title: "Lời mời kết bạn được chấp nhận!",
+            body: `${user.username} đã chấp nhận lời mời kết bạn của bạn.`,
           },
           data: {
             type: "FRIEND_REQUEST_ACCEPTED",
             senderId: userId.toString(),
             receiverId: friendId.toString(),
             conversationId: conversation._id.toString(),
-            click_action: "FLUTTER_NOTIFICATION_CLICK"
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
           },
-        });
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+              },
+            },
+          },
+          android: {
+            priority: "high",
+          },
+        };
 
-        if (response.failureCount > 0) {
-          console.log(`${response.successCount} gửi thành công, ${response.failureCount} thất bại`);
+        const response = await admin.messaging().sendEachForMulticast(message);
+        const successCount = response.successCount;
+        const failureCount = response.failureCount;
+
+        // Xóa token không hợp lệ
+        if (failureCount > 0) {
+          const failedTokens = [];
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success && resp.error?.code === "messaging/registration-token-not-registered") {
+              failedTokens.push(friend.fcmTokens[idx].token);
+            }
+          });
+          friend.fcmTokens = friend.fcmTokens.filter(
+            (t) => !failedTokens.includes(t.token)
+          );
+          await friend.save();
         }
+
+        pushStatus = successCount > 0 ? "sent" : "failed";
+        console.log(
+          `FCM to ${friendId}: ${successCount} success, ${failureCount} failed`
+        );
+      } catch (error) {
+        console.error("FCM push error:", error);
+        pushStatus = "failed";
       }
-    } catch (error) {
-      console.error("Push FCM error:", error);
+    } else {
+      console.log(`No FCM tokens found for friend: ${friendId}`);
     }
 
+    // Trả về response
     return {
       message: "Đã chấp nhận lời mời kết bạn thành công",
-      conversationId: conversation._id
+      conversationId: conversation._id.toString(),
+      deliveryStatus: {
+        push: pushStatus,
+      },
     };
   }
   

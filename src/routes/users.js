@@ -90,7 +90,7 @@ router.post("/friend-request/:id/accept", auth, async (req, res) => {
 router.post("/friend-request/:id/reject", auth, async (req, res) => {
   try {
     await UserService.rejectFriendRequest(req.user._id, req.params.id);
-    res.json({ message: "Friend request rejected successfully" });
+    res.json({ message: "Friend request rejected" });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
