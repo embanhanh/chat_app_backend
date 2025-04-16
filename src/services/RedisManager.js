@@ -63,8 +63,17 @@ class RedisManager {
     }
   }
 
-  async publishGroupCreated({ conversationId, name, creatorId, participantIds, users }) {
+  async publishGroupCreated({
+    conversationId,
+    name,
+    creatorId,
+    participantIds,
+    users,
+  }) {
     try {
+      if (!this.client.isOpen) {
+        throw new Error("Redis client is not connected");
+      }
       await this.client.publish(
         "group_created",
         JSON.stringify({
@@ -83,31 +92,43 @@ class RedisManager {
   }
 
   // Quản lý conversation participants
-  async addConversationParticipant(conversationId, userId, userInfo) {
+  async addConversationParticipant(conversationId, newParticipantIds, userInfos) {
     try {
-      console.log(`Adding participant ${userId} to conversation ${conversationId}`);
-      await this.client.sAdd(
-        `conversation:${conversationId}:participants`,
-        userId
+      console.log(
+        `Adding participants ${newParticipantIds} to conversation ${conversationId}`
       );
-      console.log(`Publishing member_added for conversation ${conversationId}, user ${userId}`);
+  
+      const participantIds = Array.isArray(newParticipantIds)
+        ? newParticipantIds
+        : [newParticipantIds];
+      
+      // Sử dụng multi để batch các lệnh Redis
+      const multi = this.client.multi();
+      for (const userId of participantIds) {
+        multi.sAdd(`conversation:${conversationId}:participants`, userId);
+      }
+      await multi.exec();
+  
+      console.log(
+        `Publishing member_added for conversation ${conversationId}, users ${participantIds}`
+      );
       await this.client.publish(
         "member_added",
         JSON.stringify({
           conversationId,
-          users: userInfo, // { avatarUrl, name }
-          newParticipantId: userId,
+          users: userInfos,
+          newParticipantIds: participantIds,
         })
       );
       console.log(`Published member_added for conversation ${conversationId}`);
       return true;
     } catch (error) {
-      console.error("Error adding conversation participant:", error);
+      console.error("Error adding conversation participants:", error);
       return false;
     }
   }
-
-  async removeConversationParticipant(conversationId, userId) {
+  
+  async removeConversationParticipant(conversationId, userId, userInfo) {
     try {
       // Xóa userId khỏi tập hợp participants
       await this.client.sRem(
@@ -121,12 +142,56 @@ class RedisManager {
         JSON.stringify({
           conversationId,
           userId,
+          userInfo, // { avatarUrl, name }
         })
       );
 
       return true;
     } catch (error) {
       console.error("Error removing conversation participant:", error);
+      return false;
+    }
+  }
+
+  async leaveConversationParticipant(conversationId, userId, userInfo, isLastParticipant = false, participantIds = []) {
+    try {
+      // Log để debug
+      console.log(`leaveConversationParticipant: conversationId=${conversationId}, userId=${userId}`);
+
+      // Kiểm tra kiểu dữ liệu
+      if (typeof conversationId !== "string" || typeof userId !== "string") {
+        throw new Error("conversationId và userId phải là string");
+      }
+
+      // Xóa userId khỏi tập hợp participants
+      await this.client.sRem(`conversation:${conversationId}:participants`, userId);
+
+      if (isLastParticipant) {
+        // Xuất bản sự kiện conversation_deleted nếu đây là thành viên cuối cùng
+        await this.client.publish(
+          "conversation_deleted",
+          JSON.stringify({
+            conversationId,
+            participantIds: participantIds.length > 0 ? participantIds : [userId],
+          })
+        );
+        console.log(`Published conversation_deleted: conversationId=${conversationId}`);
+      } else {
+        // Xuất bản sự kiện leave_conversation
+        await this.client.publish(
+          "leave_conversation",
+          JSON.stringify({
+            conversationId,
+            userId,
+            userInfo,
+          })
+        );
+        console.log(`Published leave_conversation: conversationId=${conversationId}, userId=${userId}`);
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error leaving conversation participant:", error);
       return false;
     }
   }
@@ -152,6 +217,27 @@ class RedisManager {
     }
   }
 
+  async publishGroupAvatarUpdated({ conversationId, avatar, updatedBy }) {
+    try {
+      if (typeof conversationId !== "string") {
+        throw new Error("conversationId phải là chuỗi");
+      }
+      await this.client.publish(
+        "group_avatar_updated",
+        JSON.stringify({
+          conversationId,
+          avatar,
+          updatedBy,
+        })
+      );
+      return true;
+    } catch (error) {
+      console.error("Error publishing group avatar updated:", error);
+      throw error;
+    }
+  }
+
+
   async deleteConversationData(conversationId, participantIds) {
     try {
       if (typeof conversationId !== "string") {
@@ -168,7 +254,7 @@ class RedisManager {
       throw error;
     }
   }
-  
+
   async publishConversationDeleted({ conversationId, participantIds }) {
     try {
       if (typeof conversationId !== "string") {

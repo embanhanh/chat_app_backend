@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const { redisClient } = require("./config/redis");
 const UserService = require("./services/UserService");
 const MessageService = require("./services/MessageService");
+const ConversationService = require("./services/ConversationService");
 
 // Tạo một global subscriber cho toàn bộ hệ thống
 let globalSubscriber = null;
@@ -28,24 +29,38 @@ async function handleGroupCreated(message) {
     const data = JSON.parse(message);
     const { conversationId, name, creatorId, participantIds, users } = data;
 
+    // Bao gồm cả creatorId trong danh sách người nhận
+    const allParticipants = [creatorId, ...participantIds];
+
     // Thông báo cho tất cả thành viên (bao gồm người tạo)
-    participantIds.forEach((userId) => {
-      global.io.to(`user:${userId}`).emit("groupCreated", {
-        type: "groupCreated",
-        data: {
-          conversationId,
-          name,
-          creatorId,
-          users,
-        },
-      });
+    allParticipants.forEach((userId) => {
+      try {
+        global.io.to(`user:${userId}`).emit("groupCreated", {
+          type: "groupCreated",
+          data: {
+            conversationId,
+            name,
+            creatorId,
+            users,
+          },
+        });
+      } catch (error) {
+        console.error(`Error emitting groupCreated to user:${userId}:`, error);
+      }
     });
 
     // Tự động yêu cầu các thành viên tham gia phòng
-    participantIds.forEach((userId) => {
-      global.io.to(`user:${userId}`).emit("joinConversation", {
-        conversationId,
-      });
+    allParticipants.forEach((userId) => {
+      try {
+        global.io.to(`user:${userId}`).emit("joinConversation", {
+          conversationId,
+        });
+      } catch (error) {
+        console.error(
+          `Error emitting joinConversation to user:${userId}:`,
+          error
+        );
+      }
     });
   } catch (error) {
     console.error("Error handling group created:", error);
@@ -56,10 +71,10 @@ async function handleMemberAdded(message) {
   try {
     console.log("Received member_added message:", message);
     const data = JSON.parse(message);
-    const { conversationId, users, newParticipantId } = data;
+    const { conversationId, users, newParticipantIds } = data;
 
     console.log(
-      `Emitting memberAdded for conversation ${conversationId}, new participant ${newParticipantId}`
+      `Emitting memberAdded for conversation ${conversationId}, new participant ${newParticipantIds}`
     );
     const room = `conversation:${conversationId}`; // Thêm dòng này
     global.io.to(room).emit("memberAdded", {
@@ -70,9 +85,19 @@ async function handleMemberAdded(message) {
       },
     });
 
-    global.io.to(`user:${newParticipantId}`).emit("addedToConversation", {
-      conversationId,
-    });
+    // Gửi memberAdded đến người vừa được thêm vào qua user:${newParticipantId}
+    const participantIds = Array.isArray(newParticipantIds)
+      ? newParticipantIds
+      : [newParticipantIds];
+    for (const newParticipantId of participantIds) {
+      global.io.to(`user:${newParticipantId}`).emit("memberAdded", {
+        type: "memberAdded",
+        data: {
+          conversationId,
+          users, // Danh sách [{ avatarUrl, name }, ...]
+        },
+      });
+    }
   } catch (error) {
     console.error("Error handling member added:", error);
   }
@@ -81,7 +106,7 @@ async function handleMemberAdded(message) {
 async function handleMemberRemoved(message) {
   try {
     const data = JSON.parse(message);
-    const { conversationId, userId } = data;
+    const { conversationId, userInfo, userId } = data;
 
     // Thông báo cho các thành viên hiện tại trong nhóm
     global.io.to(`conversation:${conversationId}`).emit("memberRemoved", {
@@ -89,8 +114,15 @@ async function handleMemberRemoved(message) {
       data: {
         conversationId,
         userId,
+        userInfo, // { avatarUrl, name }
       },
     });
+
+    // Xóa user khỏi room conversation:${conversationId}
+    const socket = global.io.sockets.sockets.get(`user:${userId}`);
+    if (socket) {
+      socket.leave(`conversation:${conversationId}`);
+    }
 
     // Thông báo cho người dùng bị xóa
     global.io.to(`user:${userId}`).emit("removedFromConversation", {
@@ -98,6 +130,37 @@ async function handleMemberRemoved(message) {
     });
   } catch (error) {
     console.error("Error handling member removed:", error);
+  }
+}
+
+async function handleLeaveConversation(message) {
+  try {
+    console.log("Received leave_conversation message:", message);
+    const data = JSON.parse(message);
+    const { conversationId, userId, userInfo } = data;
+
+    // Thông báo cho các thành viên còn lại trong nhóm
+    global.io.to(`conversation:${conversationId}`).emit("memberLeft", {
+      type: "memberLeft",
+      data: {
+        conversationId,
+        userId,
+        userInfo,
+      },
+    });
+
+    // Gửi memberLeft đến user rời nhóm qua room user:${userId}
+    // console.log(`Emitting memberLeft to user:${userId}`);
+    // global.io.to(`user:${userId}`).emit("memberLeft", {
+    //   type: "memberLeft",
+    //   data: {
+    //     conversationId,
+    //     userId,
+    //     userInfo,
+    //   },
+    // });
+  } catch (error) {
+    console.error("Error handling leave conversation:", error);
   }
 }
 
@@ -148,6 +211,26 @@ async function handleGroupNameUpdated(message) {
   }
 }
 
+async function handleGroupAvatarUpdated(message) {
+  try {
+    const data = JSON.parse(message);
+    const { conversationId, avatar, updatedBy } = data;
+
+    // Thông báo cho tất cả thành viên trong nhóm
+    global.io.to(`conversation:${conversationId}`).emit("groupAvatarUpdated", {
+      type: "groupAvatarUpdated",
+      data: {
+        conversationId,
+        avatar,
+        updatedBy,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling group name updated:", error);
+  }
+}
+
+
 async function handleConversationDeleted(message) {
   try {
     const data = JSON.parse(message);
@@ -192,8 +275,16 @@ async function initRedisSubscribers() {
   await globalSubscriber.subscribe("member_removed", handleMemberRemoved);
   await globalSubscriber.subscribe("group_created", handleGroupCreated);
   await globalSubscriber.subscribe(
+    "leave_conversation",
+    handleLeaveConversation
+  );
+  await globalSubscriber.subscribe(
     "group_name_updated",
     handleGroupNameUpdated
+  );
+  await globalSubscriber.subscribe(
+    "group_avatar_updated",
+    handleGroupAvatarUpdated
   );
   await globalSubscriber.subscribe(
     "conversation_deleted",
@@ -259,11 +350,21 @@ const setupWebSocket = (io) => {
         socket.emit("error", { message: "Lỗi khi tham gia cuộc trò chuyện" });
       }
     });
-    
+
     // Handle leaving conversations
-    socket.on("leave_conversation", (conversationId) => {
+    socket.on("leave_conversation", async (conversationId) => {
       try {
+        const userId = socket.userId;
+
+        // Rời room Socket.IO ngay lập tức
         socket.leave(`conversation:${conversationId}`);
+        console.log(`User ${userId} left conversation:${conversationId}`);
+
+        // Gọi ConversationService để xử lý logic rời nhóm
+        await ConversationService.leaveConversation(conversationId, userId);
+
+        // Kiểm tra socket rooms để debug
+        console.log(`Socket rooms after leaving:`, socket.rooms);
       } catch (error) {
         console.error("Error leaving conversation:", error);
         socket.emit("error", { message: "Lỗi khi rời cuộc trò chuyện" });

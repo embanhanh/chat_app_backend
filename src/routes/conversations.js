@@ -126,7 +126,7 @@ router.post("/:conversationId/members", auth, async (req, res) => {
 });
 
 // Remove participant from group
-// [DELETE] api/conversations/:id/participants/:userId
+// [DELETE] api/conversations/:conversationId/participants/:userId
 router.delete("/:conversationId/members/:userId", auth, async (req, res) => {
   try {
     if (req.params.userId === req.user._id) {
