@@ -184,11 +184,31 @@ async function handleMessageDeleted(message) {
     global.io
       .to(`conversation:${data.conversationId}`)
       .emit("message_deleted", {
-        messageId: data.messageId,
-        conversationId: data.conversationId,
+        type: "messageDeleted",
+        data: {
+          conversationId: data.conversationId,
+          messageId: data.messageId,
+        },
       });
   } catch (error) {
     console.error("Error handling message deletion:", error);
+  }
+}
+
+async function handleMessageEdited(message) {
+  try {
+    const data = JSON.parse(message);
+    global.io.to(`conversation:${data.conversationId}`).emit("message_edited", {
+      type: "messageUpdated",  
+      data: {
+        conversationId: data.conversationId,
+        messageId: data.messageId,
+        newContent: data.newContent,
+        isEdited: data.isEdited,
+      },
+    });
+  } catch (error) {
+    console.error("Error handling message edited:", error);
   }
 }
 
@@ -316,9 +336,10 @@ async function initRedisSubscribers() {
   });
 
   // Đăng ký các kênh
-  await globalSubscriber.subscribe("new_message", handleNewMessage);
+  await globalSubscriber.subscribe("new_message", handleNewMessage);    
   await globalSubscriber.subscribe("message_read", handleMessageRead);
   await globalSubscriber.subscribe("message_deleted", handleMessageDeleted);
+  await globalSubscriber.subscribe("message_edited", handleMessageEdited);
   await globalSubscriber.subscribe("member_added", handleMemberAdded);
   await globalSubscriber.subscribe("member_removed", handleMemberRemoved);
   await globalSubscriber.subscribe("group_created", handleGroupCreated);
