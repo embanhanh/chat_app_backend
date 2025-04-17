@@ -347,7 +347,7 @@ class MessageService {
         select: "username avatar"
       }
     });
-
+    
     return replyMessage;
   }
 }
