@@ -277,7 +277,7 @@ class ConversationService {
   }
 
   // Add participant to group
-  static async addParticipant(conversationId, userId, newParticipantIds) {
+  static async addParticipant(conversationId, userId, newParticipantId) {
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation || conversation.type !== "group") {
@@ -293,46 +293,23 @@ class ConversationService {
       throw { message: "Chỉ admin mới có thể thêm người dùng" };
     }
 
-    // Ensure newParticipantIds is an array
-    const participantIds = Array.isArray(newParticipantIds)
-      ? newParticipantIds
-      : [newParticipantIds];
-
-    // Check for existing participants
-    for (const newParticipantId of participantIds) {
-      if (
-        conversation.participants.some(
-          (p) => p.user.toString() === newParticipantId.toString()
-        )
-      ) {
-        throw { message: `Người dùng ${newParticipantId} đã nằm trong nhóm` };
-      }
+    // Check if user is already in the group
+    if (
+      conversation.participants.some(
+        (p) => p.user.toString() === newParticipantId.toString()
+      )
+    ) {
+      throw { message: "Người dùng đã nằm trong nhóm" };
     }
 
-    // Validate all users exist
-    const usersToAdd = [];
-    for (const newParticipantId of participantIds) {
-      const newUser = await User.findById(newParticipantId).select(
-        "username avatar"
-      );
-      if (!newUser) {
-        throw { message: `Người dùng ${newParticipantId} không tồn tại` };
-      }
-
-      usersToAdd.push({
-        id: newParticipantId,
-        userData: {
-          avatarUrl: newUser.avatar,
-          name: newUser.username,
-        },
-      });
+    const newUser = await User.findById(newParticipantId).select(
+      "username avatar"
+    );
+    if (!newUser) {
+      throw { message: "Người dùng không tồn tại" };
     }
 
-    // Add new participants to conversation
-    usersToAdd.forEach(({ id }) => {
-      conversation.participants.push({ user: id });
-    });
-
+    conversation.participants.push({ user: newParticipantId });
     await conversation.save();
 
     // Gửi danh sách tất cả user được thêm trong một lần gọi

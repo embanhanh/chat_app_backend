@@ -124,7 +124,6 @@ class RedisManager {
           newParticipantIds: participantIds,
         })
       );
-      console.log(`Published member_added for conversation ${conversationId}`);
       return true;
     } catch (error) {
       console.error("Error adding conversation participants:", error);
