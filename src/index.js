@@ -17,6 +17,8 @@ const io = socketIO(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
+    allowedHeaders: ["token", "content-type"],
+    credentials: true
   },
 });
 
@@ -50,7 +52,7 @@ app.get('/', (req, res) => {
 connectDB();
 
 // Connect to Redis
-connectRedis();
+//connectRedis();
 
 // Setup WebSocket
 setupWebSocket(io);
@@ -60,3 +62,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+module.exports = { io, server, app }; 

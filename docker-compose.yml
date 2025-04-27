@@ -1,0 +1,190 @@
+services:
+  # -----------------------
+  # Redis Cluster Nodes
+  # -----------------------
+  redis1:
+    image: redis:7
+    container_name: redis1
+    command: >
+      redis-server
+      --port 6379
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+    ports:
+      - "6379:6379"     # data port
+      - "16379:16379"   # cluster bus port
+    volumes:
+      - redis1-data:/data
+    networks:
+      - app-network
+
+  redis2:
+    image: redis:7
+    container_name: redis2
+    command: >
+      redis-server
+      --port 6379
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+    ports:
+      - "6380:6379"
+      - "16380:16379"
+    volumes:
+      - redis2-data:/data
+    networks:
+      - app-network
+
+  redis3:
+    image: redis:7
+    container_name: redis3
+    command: >
+      redis-server
+      --port 6379
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+    ports:
+      - "6381:6379"
+      - "16381:16379"
+    volumes:
+      - redis3-data:/data
+    networks:
+      - app-network
+
+  redis4:
+    image: redis:7
+    container_name: redis4
+    command: >
+      redis-server
+      --port 6379
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+    ports:
+      - "6382:6379"
+      - "16382:16379"
+    volumes:
+      - redis4-data:/data
+    networks:
+      - app-network
+
+  redis5:
+    image: redis:7
+    container_name: redis5
+    command: >
+      redis-server
+      --port 6379
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+    ports:
+      - "6383:6379"
+      - "16383:16379"
+    volumes:
+      - redis5-data:/data
+    networks:
+      - app-network
+
+  redis6:
+    image: redis:7
+    container_name: redis6
+    command: >
+      redis-server
+      --port 6379
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+    ports:
+      - "6384:6379"
+      - "16384:16379"
+    volumes:
+      - redis6-data:/data
+    networks:
+      - app-network
+
+  redis-cluster-init:
+    image: redis:7
+    depends_on:
+      - redis1
+      - redis2
+      - redis3
+      - redis4
+      - redis5
+      - redis6
+    command: >
+      /bin/sh -c "
+      sleep 5 &&
+      redis-cli --cluster create redis1:6379 redis2:6379 redis3:6379 redis4:6379 redis5:6379 redis6:6379 --cluster-replicas 0 --cluster-yes
+      "
+    networks:
+      - app-network
+
+  # -----------------------
+  # Backend Service
+  # -----------------------
+  chat_app_backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chat_app_backend
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - REDIS_HOST_1=redis1
+      - REDIS_PORT_1=6379
+      - REDIS_HOST_2=redis2
+      - REDIS_PORT_2=6379
+      - REDIS_HOST_3=redis3
+      - REDIS_PORT_3=6379
+      - REDIS_HOST_4=redis4
+      - REDIS_PORT_4=6379
+      - REDIS_HOST_5=redis5
+      - REDIS_PORT_5=6379
+      - REDIS_HOST_6=redis6
+      - REDIS_PORT_6=6379
+      - MONGO_URI=mongodb+srv://22521430:Kkm52YAVXP6YptF@chatapp.o5z7l.mongodb.net/?retryWrites=true&w=majority&appName=chatapp
+      - REDIS_HOST=redis-12223.c326.us-east-1-3.ec2.redns.redis-cloud.com
+      - REDIS_PORT=12223
+      
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+    depends_on:
+      - redis1
+      - redis2
+      - redis3
+      - redis4
+      - redis5
+      - redis6
+    networks:
+      - app-network
+
+# Dữ liệu bền cho Redis
+volumes:
+  redis1-data:
+  redis2-data:
+  redis3-data:
+  redis4-data:
+  redis5-data:
+  redis6-data:
+
+# Dùng chung một network để backend và Redis có thể liên lạc
+networks:
+  app-network:
+    driver: bridge

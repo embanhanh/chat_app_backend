@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Conversation = require("../models/Conversation");
 const jwt = require("jsonwebtoken");
 const { redisClient } = require("../config/redis");
+const redisManager = require("../services/RedisManager");
 const sendEmail = require("../utils/sendEmail");
 
 class UserService {
@@ -88,7 +89,8 @@ class UserService {
     });
 
     // Cache user's status in Redis for quick access
-    await redisClient.set(`user:${userId}:status`, status);
+    //await redisClient.set(`user:${userId}:status`, status);
+    await redisManager.updateUserStatus(userId, status);
   }
 
   // Get user's online status

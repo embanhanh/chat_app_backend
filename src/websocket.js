@@ -1,43 +1,50 @@
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
-const { redisClient } = require("./config/redis");
+const { redisCluster, redisClient } = require("./config/redis");
 const UserService = require("./services/UserService");
 const MessageService = require("./services/MessageService");
 const ConversationService = require("./services/ConversationService");
+const { createAdapter } = require("@socket.io/redis-adapter");
+const Redis = require("ioredis");
 
-// Tạo một global subscriber cho toàn bộ hệ thống
-let globalSubscriber = null;
+const EventEmitter = require("events");
+EventEmitter.defaultMaxListeners = 20; // Tăng giới hạn lên 20 listener
+
 let isSubscribed = false;
+const subscriberClient = redisCluster.duplicate();
 
 // Xử lý tin nhắn mới từ Redis và gửi đến các clients
-async function handleNewMessage(message) {
-  try {
-    const data = JSON.parse(message);
-    const room = `conversation:${data.conversation}`;
-    console.log(room);
-    console.log("handleNewMessage is running");
-    
-    // Kiểm tra số lượng client trong room
-    const clients = await global.io.in(room).allSockets();
-    console.log(`Clients in room ${room}:`, clients.size);
-    
-    // Gửi đến tất cả clients trong room với cả 2 cách
-    global.io.to(room).emit("new_message", {
-      message: data.message,
-      conversationId: data.conversation
-    });
-    
-    // Gửi cả dạng JSON string cho Postman
-    global.io.to(room).emit("new_message_json", JSON.stringify({
-      message: data.message,
-      conversationId: data.conversation
-    }));
-    
-    console.log("Message emitted to room:", room);
-  } catch (error) {
-    console.error("Error handling new message:", error);
-  }
-}
+// async function handleNewMessage(message) {
+//   try {
+//     const data = JSON.parse(message);
+//     const room = `conversation:${data.conversation}`;
+//     console.log(room);
+//     console.log("handleNewMessage is running");
+
+//     // Kiểm tra số lượng client trong room
+//     const clients = await global.io.in(room).allSockets();
+//     console.log(`Clients in room ${room}:`, clients.size);
+
+//     // Gửi đến tất cả clients trong room với cả 2 cách
+//     global.io.to(room).emit("new_message", {
+//       message: data.message,
+//       conversationId: data.conversation,
+//     });
+
+//     // Gửi cả dạng JSON string cho Postman
+//     global.io.to(room).emit(
+//       "new_message_json",
+//       JSON.stringify({
+//         message: data.message,
+//         conversationId: data.conversation,
+//       })
+//     );
+
+//     console.log("Message emitted to room:", room);
+//   } catch (error) {
+//     console.error("Error handling new message:", error);
+//   }
+// }
 
 async function handleGroupCreated(message) {
   try {
@@ -214,7 +221,7 @@ async function handleMessageEdited(message) {
   try {
     const data = JSON.parse(message);
     global.io.to(`conversation:${data.conversationId}`).emit("message_edited", {
-      type: "messageUpdated",  
+      type: "messageUpdated",
       data: {
         conversationId: data.conversationId,
         messageId: data.messageId,
@@ -349,8 +356,12 @@ async function handleFriendRequest(message) {
       // Lưu lời mời vào Redis nếu receiver offline
       await redisClient.lPush(
         `pending_friend_requests:${receiverId}`,
-        JSON.stringify({ senderId, senderInfo, timestamp: new Date().toISOString() })
-      );      
+        JSON.stringify({
+          senderId,
+          senderInfo,
+          timestamp: new Date().toISOString(),
+        })
+      );
     } else {
       // Gửi thông báo tới receiver
       global.io.to(receiver).emit("friend_request", {
@@ -364,18 +375,18 @@ async function handleFriendRequest(message) {
             timestamp: senderInfo.timestamp || new Date().toISOString(),
           },
         },
-      });      
+      });
     }
 
     // Gửi xác nhận tới sender
-    const sender = `user:${senderId}`;    
+    const sender = `user:${senderId}`;
     global.io.to(sender).emit("friend_request", {
       type: "friendRequestSent",
       data: {
         receiverId,
         timestamp: senderInfo.timestamp || new Date().toISOString(),
       },
-    });    
+    });
   } catch (error) {
     console.error("Error in handleFriendRequest:", error);
   }
@@ -385,12 +396,17 @@ async function handleFriendRequest(message) {
 async function handleFriendRequestAccepted(message) {
   try {
     const data = JSON.parse(message);
-    const { senderId, receiverId, conversationSenderData, conversationReceiverData } = data;
+    const {
+      senderId,
+      receiverId,
+      conversationSenderData,
+      conversationReceiverData,
+    } = data;
 
     const receiverRoom = `user:${receiverId}`;
     const clients = await global.io.in(receiverRoom).allSockets();
 
-    if (clients.size > 0) {      
+    if (clients.size > 0) {
       global.io.to(receiverRoom).emit("friend_request_accepted", {
         type: "friendRequestAccepted",
         data: {
@@ -407,7 +423,7 @@ async function handleFriendRequestAccepted(message) {
     }
 
     // Gửi xác nhận tới sender
-    const senderRoom = `user:${senderId}`;      
+    const senderRoom = `user:${senderId}`;
     global.io.to(senderRoom).emit("friend_request_accepted", {
       type: "friendRequestAccepted",
       data: { receiverId, conversationReceiverData },
@@ -420,47 +436,194 @@ async function handleFriendRequestAccepted(message) {
 // Khởi tạo Redis subscribers
 async function initRedisSubscribers() {
   if (isSubscribed) return;
-  
-  console.log("Initializing Redis subscribers...");
-  globalSubscriber = redisClient.duplicate();
-  await globalSubscriber.connect();
 
-  globalSubscriber.on("error", (error) => {
-    console.error("Redis subscriber error:", error);
-    isSubscribed = false;
-    initRedisSubscribers();
-  });
+  try {
+    // Subscribe tất cả các channel cùng lúc
+    await subscriberClient.subscribe(
+      "message_read",
+      "message_deleted",
+      "message_edited",
+      "member_added",
+      "member_removed",
+      "group_created",
+      "leave_conversation",
+      "group_name_updated",
+      "group_avatar_updated",
+      "conversation_deleted",
+      "friend_request",
+      "friend_request_accepted",
+      "nickname_updated",
+      "role_updated"
+    );
 
-  // Đăng ký các kênh
-  await globalSubscriber.subscribe("new_message", handleNewMessage);    
-  await globalSubscriber.subscribe("message_read", handleMessageRead);
-  await globalSubscriber.subscribe("message_deleted", handleMessageDeleted);
-  await globalSubscriber.subscribe("message_edited", handleMessageEdited);
-  await globalSubscriber.subscribe("member_added", handleMemberAdded);
-  await globalSubscriber.subscribe("member_removed", handleMemberRemoved);
-  await globalSubscriber.subscribe("group_created", handleGroupCreated);
-  await globalSubscriber.subscribe(
-    "leave_conversation",
-    handleLeaveConversation
-  );
-  await globalSubscriber.subscribe("group_name_updated", handleGroupNameUpdated);
-  await globalSubscriber.subscribe(
-    "group_avatar_updated",
-    handleGroupAvatarUpdated
-  );
-  await globalSubscriber.subscribe("conversation_deleted", handleConversationDeleted);
-  await globalSubscriber.subscribe("friend_request", handleFriendRequest);
-  await globalSubscriber.subscribe("friend_request_accepted", handleFriendRequestAccepted);
-  await globalSubscriber.subscribe("nickname_updated", handleNicknameUpdated);
-  await globalSubscriber.subscribe("role_updated", handleRoleUpdated);
+    // Khi có bất kỳ message nào, bắn vào đúng handler
+    subscriberClient.on("message", (channel, payload) => {
+      try {
+        switch (channel) {
+          case "message_read":
+            handleMessageRead(payload);
+            break;
+          case "message_deleted":
+            handleMessageDeleted(payload);
+            break;
+          case "message_edited":
+            handleMessageEdited(payload);
+            break;
+          case "member_added":
+            handleMemberAdded(payload);
+            break;
+          case "member_removed":
+            handleMemberRemoved(payload);
+            break;
+          case "group_created":
+            handleGroupCreated(payload);
+            break;
+          case "leave_conversation":
+            handleLeaveConversation(payload);
+            break;
+          case "group_name_updated":
+            handleGroupNameUpdated(payload);
+            break;
+          case "group_avatar_updated":
+            handleGroupAvatarUpdated(payload);
+            break;
+          case "conversation_deleted":
+            handleConversationDeleted(payload);
+            break;
+          case "friend_request":
+            handleFriendRequest(payload);
+            break;
+          case "friend_request_accepted":
+            handleFriendRequestAccepted(payload);
+            break;
+          case "nickname_updated":
+            handleNicknameUpdated(payload);
+            break;
+          case "role_updated":
+            handleRoleUpdated(payload);
+            break;
+          // nếu có thêm channel nào khác thì bổ sung ở đây
+          default:
+            console.warn(`No handler for Redis channel ${channel}`);
+        }
+      } catch (err) {
+        console.error(`Error in handler for channel ${channel}:`, err);
+      }
+    });
 
-  isSubscribed = true;
-  console.log("Redis subscribers initialized successfully");
+    isSubscribed = true;
+    console.log("Redis subscribers initialized successfully");
+  } catch (err) {
+    console.error("Failed to initialize Redis subscribers:", err);
+    throw err;
+  }
+}
+
+// Sửa đổi hàm setupRedisAdapter
+async function setupRedisAdapter(io) {
+  try {
+    const pubClient = redisCluster;
+    const subClient = pubClient.duplicate();
+
+    pubClient.on("error", (err) => {
+      console.error("Redis Pub Error:", err);
+    });
+
+    subClient.on("error", (err) => {
+      console.error("Redis Sub Error:", err);
+    });
+
+    // Đợi kết nối
+    await Promise.all([
+      new Promise((resolve) => {
+        pubClient.on("ready", () => {
+          console.log("Pub client ready");
+          resolve();
+        });
+      }),
+      new Promise((resolve) => {
+        subClient.on("ready", () => {
+          console.log("Sub client ready");
+          resolve();
+        });
+      }),
+    ]);
+
+    // Khởi tạo adapter
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log("✅ Redis Adapter initialized via ioredis.Cluster");
+  } catch (err) {
+    console.error("❌ Failed to initialize Redis Adapter:", err);
+    throw err;
+  }
+}
+
+// Send pending notifications (friend requests, accepted requests)
+async function sendPendingNotifications(socket) {
+  const { userId, device } = socket;
+  const pipeline = redisCluster.pipeline();
+
+  pipeline.lrange(`pending_friend_requests:${userId}`, 0, -1);
+  pipeline.lrange(`pending_friend_request_accepted:${userId}`, 0, -1);
+
+  const [[friendRequests], [acceptedRequests]] = await pipeline.exec();
+
+  for (const request of friendRequests) {
+    const { senderId, senderInfo } = JSON.parse(request);
+    const notificationKey = `notification:friend_request:${senderId}:${userId}:${device}`;
+    if (!(await redisCluster.exists(notificationKey))) {
+      socket.emit("friend_request", {
+        type: "friendRequest",
+        data: { senderId, senderInfo },
+      });
+      await redisCluster.set(notificationKey, 1, { EX: NOTIFICATION_TTL });
+    }
+  }
+
+  for (const accepted of acceptedRequests) {
+    const { senderId, conversationData } = JSON.parse(accepted);
+    const notificationKey = `notification:friend_accepted:${senderId}:${userId}:${device}`;
+    if (!(await redisCluster.exists(notificationKey))) {
+      socket.emit("friend_request_accepted", {
+        type: "friendRequestAccepted",
+        data: { senderId, conversationData },
+      });
+      await redisCluster.set(notificationKey, 1, { EX: NOTIFICATION_TTL });
+    }
+  }
+
+  await redisCluster.del([
+    `pending_friend_requests:${userId}`,
+    `pending_friend_request_accepted:${userId}`,
+  ]);
+}
+
+// Manage user sockets in Redis
+async function manageUserSocket(userId, socketId, action) {
+  const key = `user:sockets:${userId}`;
+  try {
+    if (action === "add") {
+      await redisCluster.sadd(key, socketId); // Changed from sAdd to sadd
+    } else if (action === "remove") {
+      await redisCluster.srem(key, socketId); // Changed from sRem to srem
+    }
+    const socketCount = await redisCluster.scard(key); // Changed from sCard to scard
+    return socketCount;
+  } catch (err) {
+    console.error(`Error managing user socket (${userId}):`, err);
+    throw err;
+  }
 }
 
 const setupWebSocket = (io) => {
   // Lưu trữ io trong global để có thể truy cập từ các hàm xử lý Redis
   global.io = io;
+
+  // Kết nối Redis Adapter cho multi-server
+  setupRedisAdapter(io).catch((err) => {
+    console.error("❌ Failed to initialize Redis Cluster Adapter:", err);
+    process.exit(1);
+  });
 
   // Khởi tạo Redis subscribers
   initRedisSubscribers();
@@ -469,39 +632,46 @@ const setupWebSocket = (io) => {
   io.use(async (socket, next) => {
     try {
       const token =
-        socket.handshake.auth?.token || socket.handshake.headers?.token;
+        socket.handshake.auth?.token ||
+        socket.handshake.headers?.token ||
+        socket.handshake.query?.token;
+
+      console.log("Received token:", token); // Log the token for debugging
+
       if (!token) {
         throw new Error("Authentication error");
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId = decoded.id;
+      socket.device = socket.handshake.auth.device || "unknown";
+
+      console.log("Authentication successful for user:", decoded.id);
       next();
     } catch (error) {
-      next(new Error("Authentication error"));
+      console.error("Authentication error:", error.message);
+      next(new Error("Authentication error: " + error.message));
     }
   });
 
   // Handle socket connections
   io.on("connection", async (socket) => {
-    const userId = socket.userId;
-    console.log(`User connected: ${userId}, socket ID: ${socket.id}`);
-    
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    const reconnectDelay = 5000; // 5 seconds
-
-
+    const { userId, device } = socket;
+    console.log(
+      `User connected: ${userId}, socket ID: ${socket.id}, device: ${device}`
+    );
 
     // Join user's room
     socket.join(`user:${userId}`);
     console.log(`User ${userId} joined room user:${userId}`);
+    await manageUserSocket(userId, socket.id, "add");
+    //await sendPendingNotifications(socket);
 
     // Update user's online status
     await UserService.updateOnlineStatus(userId, "online");
 
     // Gửi các lời mời pending cho user
-    const pendingRequests = await redisClient.lRange(
+    const pendingRequests = await redisCluster.lrange(
       `pending_friend_requests:${socket.userId}`,
       0,
       -1
@@ -515,11 +685,11 @@ const setupWebSocket = (io) => {
         });
         console.log(`Sent pending friend_request to ${socket.userId}`);
       }
-      await redisClient.del(`pending_friend_requests:${socket.userId}`);
+      await redisCluster.del(`pending_friend_requests:${socket.userId}`);
     }
-    
+
     // Gửi các thông báo chấp nhận kết bạn pending
-    const pendingAccepted = await redisClient.lRange(
+    const pendingAccepted = await redisCluster.lrange(
       `pending_friend_request_accepted:${socket.userId}`,
       0,
       -1
@@ -533,7 +703,9 @@ const setupWebSocket = (io) => {
         });
         console.log(`Sent pending friend_request_accepted to ${socket.userId}`);
       }
-      await redisClient.del(`pending_friend_request_accepted:${socket.userId}`);
+      await redisCluster.del(
+        `pending_friend_request_accepted:${socket.userId}`
+      );
     }
 
     // Event handlers for testing with Postman
@@ -542,30 +714,33 @@ const setupWebSocket = (io) => {
       // Send a response back to confirm
       socket.emit("test_response", { message: "Test received", data });
     });
-    
+
     // Testing event for direct message
     socket.on("direct_message", async (data) => {
       try {
         console.log("Direct message event received:", data);
-        
+
         // Send a direct message to a specific user
         if (data.receiverId) {
           const receiver = `user:${data.receiverId}`;
           global.io.to(receiver).emit("direct_message", {
             message: data.message,
-            senderId: userId
+            senderId: userId,
           });
           // Also send as JSON string for Postman testing
-          global.io.to(receiver).emit("direct_message_json", JSON.stringify({
-            message: data.message,
-            senderId: userId
-          }));
+          global.io.to(receiver).emit(
+            "direct_message_json",
+            JSON.stringify({
+              message: data.message,
+              senderId: userId,
+            })
+          );
           console.log(`Direct message sent to ${receiver}`);
-          
+
           // Confirm to sender
-          socket.emit("direct_message_sent", { 
-            success: true, 
-            receiverId: data.receiverId 
+          socket.emit("direct_message_sent", {
+            success: true,
+            receiverId: data.receiverId,
           });
         }
       } catch (error) {
@@ -581,9 +756,9 @@ const setupWebSocket = (io) => {
         socket.join(`conversation:${conversationId}`);
 
         // Send confirmation to client
-        socket.emit("joined_conversation", { 
+        socket.emit("joined_conversation", {
           conversationId,
-          success: true
+          success: true,
         });
         console.log(
           `User ${socket.userId} joined conversation conversation:${conversationId}`
@@ -649,14 +824,22 @@ const setupWebSocket = (io) => {
     // Handle disconnection
     socket.on("disconnect", async () => {
       try {
-        await UserService.updateOnlineStatus(userId, "offline");
+        const remainingSockets = await manageUserSocket(
+          userId,
+          socket.id,
+          "remove"
+        );
+        if (remainingSockets === 0) {
+          await UserService.updateOnlineStatus(userId, "offline");
+        }
+        console.log(
+          `User disconnected: ${userId}, remaining sockets: ${remainingSockets}`
+        );
       } catch (error) {
         console.error("Error handling disconnection:", error);
       }
-    });   
-        
+    });
   });
-
 };
 
 module.exports = setupWebSocket;

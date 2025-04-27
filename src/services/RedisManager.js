@@ -1,8 +1,8 @@
-const { redisClient } = require("../config/redis");
+const { redisClient, redisCluster } = require("../config/redis");
 
 class RedisManager {
   constructor() {
-    this.client = redisClient;
+    this.client = redisCluster;
   }
 
   // Quản lý trạng thái online/offline
@@ -109,7 +109,7 @@ class RedisManager {
       // Sử dụng multi để batch các lệnh Redis
       const multi = this.client.multi();
       for (const userId of participantIds) {
-        multi.sAdd(`conversation:${conversationId}:participants`, userId);
+        multi.sadd(`conversation:${conversationId}:participants`, userId);
       }
       await multi.exec();
 
