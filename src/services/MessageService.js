@@ -10,6 +10,7 @@ class MessageService {
       "participants.user"
     );
     console.log("Heloooooooooooo");
+    console.log(senderId, conversationId, messageData);
 
     if (!conversation) {
       throw { message: "Cuộc hội thoại không tồn tại" };
@@ -76,20 +77,18 @@ class MessageService {
     // Populate sender information before publishing
     await message.populate("sender", "username avatar _id");
 
-    // Dùng global.io để broadcast
-    const room = `conversation:${conversationId}`;
-    global.io.to(room).emit("new_message", {
+    // Get recipient IDs (all participants except sender)
+    const recipientIds = conversation.participants
+      .map(p => p.user._id.toString())
+      .filter(id => id !== senderId);
+
+    // Send message through Kafka to ensure cross-server delivery
+    const KafkaService = require('./KafkaService');
+    await KafkaService.sendMessage({
       message,
       conversationId: conversation._id.toString(),
+      recipientIds
     });
-    // Gửi thêm bản JSON string để test Postman
-    global.io.to(room).emit(
-      "new_message_json",
-      JSON.stringify({
-        message,
-        conversationId: conversation._id.toString(),
-      })
-    );
 
     // Prepare notification content
     let notificationContent = messageData.content || "";

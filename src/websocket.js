@@ -6,6 +6,9 @@ const MessageService = require("./services/MessageService");
 const ConversationService = require("./services/ConversationService");
 const { createAdapter } = require("@socket.io/redis-adapter");
 const Redis = require("ioredis");
+const KafkaService = require('./services/KafkaService');
+const RedisManager = require('./services/RedisManager');
+const Conversation = require("./models/Conversation");
 
 const EventEmitter = require("events");
 EventEmitter.defaultMaxListeners = 20; // Tăng giới hạn lên 20 listener
@@ -619,6 +622,9 @@ const setupWebSocket = (io) => {
   // Lưu trữ io trong global để có thể truy cập từ các hàm xử lý Redis
   global.io = io;
 
+  // Initialize KafkaService with io instance
+  KafkaService.setIO(io);
+
   // Kết nối Redis Adapter cho multi-server
   setupRedisAdapter(io).catch((err) => {
     console.error("❌ Failed to initialize Redis Cluster Adapter:", err);
@@ -636,7 +642,9 @@ const setupWebSocket = (io) => {
         socket.handshake.headers?.token ||
         socket.handshake.query?.token;
 
-      console.log("Received token:", token); // Log the token for debugging
+      const deviceId = socket.handshake.auth?.deviceId || 
+                      socket.handshake.query?.deviceId || 
+                      'unknown';
 
       if (!token) {
         throw new Error("Authentication error");
@@ -644,9 +652,9 @@ const setupWebSocket = (io) => {
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId = decoded.id;
-      socket.device = socket.handshake.auth.device || "unknown";
+      socket.deviceId = deviceId;
 
-      console.log("Authentication successful for user:", decoded.id);
+      console.log(`Authentication successful for user: ${decoded.id}, device: ${deviceId}`);
       next();
     } catch (error) {
       console.error("Authentication error:", error.message);
@@ -656,10 +664,13 @@ const setupWebSocket = (io) => {
 
   // Handle socket connections
   io.on("connection", async (socket) => {
-    const { userId, device } = socket;
+    const { userId, deviceId } = socket;
     console.log(
-      `User connected: ${userId}, socket ID: ${socket.id}, device: ${device}`
+      `User connected: ${userId}, socket ID: ${socket.id}, device: ${deviceId}`
     );
+
+    // Lưu thông tin socket và device vào Redis
+    await RedisManager.addUserSocket(userId, socket.id, deviceId);
 
     // Join user's room
     socket.join(`user:${userId}`);
@@ -824,19 +835,77 @@ const setupWebSocket = (io) => {
     // Handle disconnection
     socket.on("disconnect", async () => {
       try {
-        const remainingSockets = await manageUserSocket(
-          userId,
-          socket.id,
-          "remove"
-        );
-        if (remainingSockets === 0) {
+        // Xóa socket khỏi Redis
+        await RedisManager.removeUserSocket(userId, socket.id);
+        
+        // Kiểm tra nếu không còn socket nào của user thì cập nhật status
+        const remainingSockets = await RedisManager.getUserSockets(userId);
+        if (remainingSockets.length === 0) {
           await UserService.updateOnlineStatus(userId, "offline");
         }
-        console.log(
-          `User disconnected: ${userId}, remaining sockets: ${remainingSockets}`
-        );
+        
+        console.log(`User disconnected: ${userId}, device: ${deviceId}`);
       } catch (error) {
         console.error("Error handling disconnection:", error);
+      }
+    });
+
+    // Sửa lại phần xử lý tin nhắn để gửi qua Kafka
+    socket.on("send_message", async (data) => {
+      try {
+        // Handle both flat and nested message structures
+        const messageData = data.data || data;
+        
+        // Add validation for required fields
+        if (!socket.userId) {
+          throw new Error("User not authenticated");
+        }
+        if (!messageData.conversationId) {
+          throw new Error("conversationId is required");
+        }
+
+        console.log("Attempting to send message:", {
+          userId: socket.userId,
+          conversationId: messageData.conversationId,
+          data: messageData
+        });
+
+        const message = await MessageService.sendMessage(
+          socket.userId,
+          messageData.conversationId,
+          messageData
+        );
+
+        console.log("Message sent successfully:", message);
+
+        // Lấy danh sách người nhận từ conversation
+        const conversation = await Conversation.findById(messageData.conversationId);
+        if (!conversation) {
+          throw new Error("Conversation not found");
+        }
+
+        const recipientIds = conversation.participants
+          .map(p => p.user.toString())
+          .filter(id => id !== socket.userId);
+
+        // Gửi tin nhắn qua Kafka
+        await KafkaService.sendMessage({
+          message,
+          conversationId: messageData.conversationId,
+          recipientIds
+        });
+
+      } catch (error) {
+        console.error("Error sending message:", {
+          error: error.message,
+          stack: error.stack,
+          userId: socket.userId,
+          data: data
+        });
+        socket.emit("error", { 
+          message: error.message || "Failed to send message",
+          details: error.message === "User not authenticated" ? "Please reconnect with valid authentication" : undefined
+        });
       }
     });
   });
