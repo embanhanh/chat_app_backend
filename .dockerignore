@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+Dockerfile
+docker-compose.yml
+*.exe
+*.bat
+*.ps1
+*.zip
+*.rar
+.vscode
+.git
+.DS_Store
+Thumbs.db

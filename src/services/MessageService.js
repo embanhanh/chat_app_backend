@@ -1,6 +1,6 @@
 const Message = require("../models/Message");
 const Conversation = require("../models/Conversation");
-const { redisClient } = require("../config/redis");
+const { redisCluster } = require("../config/redis");
 const admin = require("firebase-admin");
 
 class MessageService {
@@ -9,6 +9,8 @@ class MessageService {
     const conversation = await Conversation.findById(conversationId).populate(
       "participants.user"
     );
+    console.log("Heloooooooooooo");
+    console.log(senderId, conversationId, messageData);
 
     if (!conversation) {
       throw { message: "Cuộc hội thoại không tồn tại" };
@@ -36,7 +38,9 @@ class MessageService {
         throw { message: "Tin nhắn được trả lời không tồn tại" };
       }
       // Kiểm tra xem tin nhắn được trả lời có thuộc cùng cuộc hội thoại không
-      if (repliedMessage.conversation.toString() !== conversationId.toString()) {
+      if (
+        repliedMessage.conversation.toString() !== conversationId.toString()
+      ) {
         throw { message: "Không thể trả lời tin nhắn từ cuộc hội thoại khác" };
       }
     }
@@ -73,14 +77,18 @@ class MessageService {
     // Populate sender information before publishing
     await message.populate("sender", "username avatar _id");
 
-    // Publish message to Redis for real-time delivery
-    await redisClient.publish(
-      "new_message",
-      JSON.stringify({
-        message,
-        conversation: conversation._id,
-      })
-    );
+    // Get recipient IDs (all participants except sender)
+    const recipientIds = conversation.participants
+      .map(p => p.user._id.toString())
+      .filter(id => id !== senderId);
+
+    // Send message through Kafka to ensure cross-server delivery
+    const KafkaService = require('./KafkaService');
+    await KafkaService.sendMessage({
+      message,
+      conversationId: conversation._id.toString(),
+      recipientIds
+    });
 
     // Prepare notification content
     let notificationContent = messageData.content || "";
@@ -210,7 +218,7 @@ class MessageService {
     await conversation.save();
 
     // Publish read receipt to Redis
-    await redisClient.publish(
+    await redisCluster.publish(
       "message_read",
       JSON.stringify({
         userId,
@@ -233,8 +241,8 @@ class MessageService {
         select: "content contentType media sender",
         populate: {
           path: "sender",
-          select: "username avatar"
-        }
+          select: "username avatar",
+        },
       })
       .lean();
 
@@ -256,7 +264,7 @@ class MessageService {
     await Message.findByIdAndDelete(messageId);
 
     // Publish delete event to Redis
-    await redisClient.publish(
+    await redisCluster.publish(
       "message_deleted",
       JSON.stringify({
         messageId,
@@ -286,18 +294,18 @@ class MessageService {
     message.content = newContent;
     message.isEdited = true;
     message.editedAt = new Date();
-    
+
     await message.save();
 
     // Publish edit event to Redis
-    await redisClient.publish(
+    await redisCluster.publish(
       "message_edited",
       JSON.stringify({
         messageId,
         conversationId: message.conversation,
         newContent,
         isEdited: true,
-        editedAt: message.editedAt
+        editedAt: message.editedAt,
       })
     );
 
@@ -313,7 +321,9 @@ class MessageService {
     }
 
     // Kiểm tra người dùng có trong cuộc hội thoại không
-    const conversation = await Conversation.findById(originalMessage.conversation);
+    const conversation = await Conversation.findById(
+      originalMessage.conversation
+    );
     if (!conversation) {
       throw { message: "Cuộc hội thoại không tồn tại" };
     }
@@ -334,7 +344,7 @@ class MessageService {
         content: messageData.content || "",
         replyTo: messageId,
         contentType: messageData.contentType,
-        media: messageData.media || []
+        media: messageData.media || [],
       }
     );
 
@@ -344,10 +354,10 @@ class MessageService {
       select: "content contentType media sender",
       populate: {
         path: "sender",
-        select: "username avatar"
-      }
+        select: "username avatar",
+      },
     });
-    
+
     return replyMessage;
   }
 }

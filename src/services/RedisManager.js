@@ -1,8 +1,8 @@
-const { redisClient } = require("../config/redis");
+const { redisClient, redisCluster } = require("../config/redis");
 
 class RedisManager {
   constructor() {
-    this.client = redisClient;
+    this.client = redisCluster;
   }
 
   // Quản lý trạng thái online/offline
@@ -47,7 +47,7 @@ class RedisManager {
   // Quản lý message read status
   async updateMessageReadStatus(messageId, userId, conversationId) {
     try {
-      await this.client.sAdd(`message:${messageId}:read_by`, userId);
+      await this.client.sadd(`message:${messageId}:read_by`, userId);
       await this.client.publish(
         `conversation:${conversationId}`,
         JSON.stringify({
@@ -109,7 +109,7 @@ class RedisManager {
       // Sử dụng multi để batch các lệnh Redis
       const multi = this.client.multi();
       for (const userId of participantIds) {
-        multi.sAdd(`conversation:${conversationId}:participants`, userId);
+        multi.sadd(`conversation:${conversationId}:participants`, userId);
       }
       await multi.exec();
 
@@ -134,7 +134,7 @@ class RedisManager {
   async removeConversationParticipant(conversationId, userId, userInfo) {
     try {
       // Xóa userId khỏi tập hợp participants
-      await this.client.sRem(
+      await this.client.srem(
         `conversation:${conversationId}:participants`,
         userId
       );
@@ -175,7 +175,7 @@ class RedisManager {
       }
 
       // Xóa userId khỏi tập hợp participants
-      await this.client.sRem(
+      await this.client.srem(
         `conversation:${conversationId}:participants`,
         userId
       );
@@ -295,7 +295,7 @@ class RedisManager {
   // Quản lý user sessions
   async addUserSession(userId, sessionId) {
     try {
-      await this.client.sAdd(`user:${userId}:sessions`, sessionId);
+      await this.client.sadd(`user:${userId}:sessions`, sessionId);
       return true;
     } catch (error) {
       console.error("Error adding user session:", error);
@@ -305,7 +305,7 @@ class RedisManager {
 
   async removeUserSession(userId, sessionId) {
     try {
-      await this.client.sRem(`user:${userId}:sessions`, sessionId);
+      await this.client.srem(`user:${userId}:sessions`, sessionId);
       return true;
     } catch (error) {
       console.error("Error removing user session:", error);
@@ -400,6 +400,78 @@ class RedisManager {
     } catch (error) {
       console.error("Error deleting cache:", error);
       return false;
+    }
+  }
+
+  // Quản lý user sessions và devices
+  async addUserSocket(userId, socketId, deviceId) {
+    try {
+      // Sử dụng một key duy nhất cho user và hash để lưu thông tin
+      const userKey = `user:{${userId}}:data`;
+      
+      // Lưu socket info vào hash
+      await this.client.hset(userKey, {
+        [`socket:${socketId}`]: JSON.stringify({
+          deviceId,
+          connectedAt: Date.now()
+        })
+      });
+
+      // Thêm socketId vào set của user (vẫn trong cùng key space)
+      await this.client.sadd(`user:{${userId}}:sockets`, socketId);
+      
+      return true;
+    } catch (error) {
+      console.error("Error adding user socket:", error);
+      return false;
+    }
+  }
+
+  async removeUserSocket(userId, socketId) {
+    try {
+      const userKey = `user:{${userId}}:data`;
+      
+      // Xóa socket info khỏi hash
+      await this.client.hdel(userKey, `socket:${socketId}`);
+      
+      // Xóa socketId khỏi set
+      await this.client.srem(`user:{${userId}}:sockets`, socketId);
+      
+      return true;
+    } catch (error) {
+      console.error("Error removing user socket:", error);
+      return false;
+    }
+  }
+
+  async getUserSockets(userId) {
+    try {
+      // Lấy tất cả socketId của user từ set
+      return await this.client.smembers(`user:{${userId}}:sockets`);
+    } catch (error) {
+      console.error("Error getting user sockets:", error);
+      return [];
+    }
+  }
+
+  async getSocketInfo(userId, socketId) {
+    try {
+      const userKey = `user:{${userId}}:data`;
+      const socketInfo = await this.client.hget(userKey, `socket:${socketId}`);
+      return socketInfo ? JSON.parse(socketInfo) : null;
+    } catch (error) {
+      console.error("Error getting socket info:", error);
+      return null;
+    }
+  }
+
+  async getUserDeviceSockets(userId, deviceId) {
+    try {
+      const key = `user:${userId}:devices:${deviceId}`;
+      return await this.client.smembers(key);
+    } catch (error) {
+      console.error("Error getting device sockets:", error);
+      return [];
     }
   }
 }

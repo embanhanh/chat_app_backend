@@ -1,29 +1,82 @@
 require("dotenv").config();
-const Redis = require("redis");
+const Redis = require("ioredis");
 
-const redisClient = Redis.createClient({
-  host: process.env.REDIS_HOST,
-  port: process.env.REDIS_PORT,
+// Khởi kết nối tới Redis Cluster sử dụng ioredis
+const redisCluster = new Redis.Cluster(
+  [
+    {
+      host: process.env.REDIS_HOST_1 || "redis1",
+      port: Number(process.env.REDIS_PORT_1) || 6379,
+    },
+    {
+      host: process.env.REDIS_HOST_2 || "redis2",
+      port: Number(process.env.REDIS_PORT_2) || 6379,
+    },
+    {
+      host: process.env.REDIS_HOST_3 || "redis3",
+      port: Number(process.env.REDIS_PORT_3) || 6379,
+    },
+    {
+      host: process.env.REDIS_HOST_4 || "redis4",
+      port: Number(process.env.REDIS_PORT_4) || 6379,
+    },
+    {
+      host: process.env.REDIS_HOST_5 || "redis5",
+      port: Number(process.env.REDIS_PORT_5) || 6379,
+    },
+    {
+      host: process.env.REDIS_HOST_6 || "redis6",
+      port: Number(process.env.REDIS_PORT_6) || 6379,
+    },
+  ],
+  {
+    redisOptions: {
+      enableReadyCheck: true,
+      maxRetriesPerRequest: null,
+      retryStrategy: function (times) {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+    },
+    scaleReads: "master",
+    enableOfflineQueue: true,
+    showFriendlyErrorStack: true,
+    slotsRefreshTimeout: 10000,
+    dnsLookup: (address, callback) => callback(null, address),
+  }
+);
+
+console.log("Redis Cluster Config:", redisCluster);
+
+redisCluster.on("error", (err) => {
+  console.error("ioredis Cluster Error:", err);
 });
 
+redisCluster.on("connect", () => {
+  console.log("ioredis Cluster Connected");
+});
+
+// Khởi tạo standalone client để dùng cho Pub/Sub hoặc debug nhanh
+// Thay đổi cấu hình Redis standalone client để kết nối với container Redis
+const redisClient = new Redis({
+  host: process.env.REDIS_HOST_1 || "redis1", // Sử dụng tên container thay vì localhost
+  port: Number(process.env.REDIS_PORT_1) || 6379,
+  retryStrategy: function (times) {
+    const delay = Math.min(times * 50, 2000);
+    return delay;
+  },
+});
+
+console.log("Attempting to connect to Redis...");
+redisClient.on("connect", () => console.log("✅ioredis Client Connected"));
 redisClient.on("error", (err) => {
   console.error("Redis Client Error:", err);
-});
-
-redisClient.on("connect", () => {
-  console.log("Redis Client Connected");
-});
-
-const connectRedis = async () => {
-  try {
-    await redisClient.connect();
-  } catch (error) {
-    console.error(`Redis Connection Error: ${error.message}`);
-    process.exit(1);
+  if (err.code === "ECONNREFUSED") {
+    console.error(
+      "Cannot connect to Redis. Please check if Redis container is running and accessible."
+    );
   }
-};
+});
+redisClient.on("ready", () => console.log("Redis Client Ready"));
 
-module.exports = {
-  redisClient,
-  connectRedis,
-};
+module.exports = { redisCluster, redisClient };

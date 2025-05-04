@@ -9,6 +9,7 @@ const morgan = require("morgan");
 const connectDB = require("./config/database");
 const { connectRedis } = require("./config/redis");
 const setupWebSocket = require("./websocket");
+const KafkaService = require('./services/KafkaService');
 
 // Create Express app
 const app = express();
@@ -17,6 +18,8 @@ const io = socketIO(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
+    allowedHeaders: ["token", "content-type"],
+    credentials: true
   },
 });
 
@@ -46,17 +49,29 @@ app.get('/', (req, res) => {
   res.send('Hello world!');
 });
 
-// Connect to MongoDB
-connectDB();
+// Initialize all services and start server
+async function startServer() {
+  try {
+    // Connect to MongoDB
+    await connectDB();
+    
+    // Initialize Kafka
+    await KafkaService.initialize();
+    
+    // Setup WebSocket with initialized services
+    setupWebSocket(io);
 
-// Connect to Redis
-connectRedis();
+    // Start server
+    const PORT = process.env.PORT || 5000;
+    server.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
 
-// Setup WebSocket
-setupWebSocket(io);
+startServer();
 
-// Start server
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+module.exports = { io, server, app };
