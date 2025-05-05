@@ -644,21 +644,28 @@
         }
 
         function showIncomingCall(data) {
-            console.log('Incoming call data:', data); // Debug log
-            incomingCallData = data;
-            const callerName = document.getElementById('callerName');
-            callerName.textContent = data.fromUsername || data.from;
-            const modal = document.getElementById('incomingCallModal');
-            modal.style.display = 'block';
-            // Phát âm thanh thông báo
-            playRingtone();
+            try {
+                console.log('📱 Showing incoming call UI:', data);
+                incomingCallData = data; // Lưu data ngay khi hiển thị
+                const callerName = document.getElementById('callerName');
+                callerName.textContent = data.fromUsername || data.from;
+                const modal = document.getElementById('incomingCallModal');
+                modal.style.display = 'block';
+                playRingtone();
+            } catch (error) {
+                console.error('❌ Error showing incoming call:', error);
+            }
         }
 
         function hideIncomingCall() {
-            const modal = document.getElementById('incomingCallModal');
-            modal.style.display = 'none';
-            incomingCallData = null;
-            stopRingtone();
+            try {
+                const modal = document.getElementById('incomingCallModal');
+                modal.style.display = 'none';
+                stopRingtone();
+                // KHÔNG xóa incomingCallData ở đây vì còn cần dùng cho việc thiết lập kết nối
+            } catch (error) {
+                console.error('❌ Error hiding incoming call:', error);
+            }
         }
 
         function showCallingStatus() {
@@ -672,48 +679,77 @@
         }
 
         async function acceptCall() {
-            if (!incomingCallData) return;
-            
-            console.log('✅ Accepting call from:', {
-                from: incomingCallData.from,
-                timestamp: new Date().toISOString()
-            });
-            
-            hideIncomingCall();
-            updateStatus('Đang kết nối cuộc gọi...');
-            
             try {
-                await setupLocalStream();
+                console.log('Accepting call with data:', incomingCallData);
                 
-                socket.emit('call_response', {
-                    targetUserId: incomingCallData.from,
-                    accepted: true
-                });
+                if (!incomingCallData) {
+                    console.error('❌ No incoming call data available');
+                    updateStatus('Lỗi: Không có thông tin cuộc gọi');
+                    return;
+                }
                 
-                await setupPeerConnection(incomingCallData.from, false);
+                hideIncomingCall();
+                updateStatus('Đang kết nối cuộc gọi...');
+                
+                try {
+                    await setupLocalStream();
+                    
+                    console.log('📞 Sending call_response:', {
+                        targetUserId: incomingCallData.from,
+                        accepted: true,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    socket.emit('call_response', {
+                        targetUserId: incomingCallData.from,
+                        accepted: true
+                    });
+                    
+                    await setupPeerConnection(incomingCallData.from, false);
+                } catch (error) {
+                    console.error('❌ Error in call setup:', error);
+                    updateStatus('Lỗi khi thiết lập cuộc gọi');
+                    
+                    // Thông báo lỗi cho người gọi
+                    if (incomingCallData && incomingCallData.from) {
+                        socket.emit('call_response', {
+                            targetUserId: incomingCallData.from,
+                            accepted: false,
+                            reason: 'setup_failed'
+                        });
+                    }
+                }
             } catch (error) {
-                console.error('❌ Error accepting call:', error);
-                updateStatus('Lỗi khi kết nối cuộc gọi');
+                console.error('❌ Error in acceptCall:', error);
+                updateStatus('Lỗi khi chấp nhận cuộc gọi');
             }
         }
 
-        function rejectCall(reason) {
-            if (!incomingCallData) return;
-            
-            console.log('❌ Rejecting call:', {
-                from: incomingCallData.from,
-                reason,
-                timestamp: new Date().toISOString()
-            });
-            
-            socket.emit('call_response', {
-                targetUserId: incomingCallData.from,
-                accepted: false,
-                reason: reason
-            });
-            
-            hideIncomingCall();
-            updateStatus(`Đã từ chối cuộc gọi. Lý do: ${reason}`);
+        function rejectCall(reason = 'rejected') {
+            try {
+                console.log('Rejecting call:', {
+                    incomingCallData,
+                    reason,
+                    timestamp: new Date().toISOString()
+                });
+                
+                if (!incomingCallData) {
+                    console.error('❌ No incoming call data available');
+                    return;
+                }
+                
+                socket.emit('call_response', {
+                    targetUserId: incomingCallData.from,
+                    accepted: false,
+                    reason: reason
+                });
+                
+                hideIncomingCall();
+                updateStatus('Đã từ chối cuộc gọi');
+                cleanup();
+            } catch (error) {
+                console.error('❌ Error in rejectCall:', error);
+            }
         }
 
         // Thêm âm thanh thông báo
