@@ -9,6 +9,7 @@ const Redis = require("ioredis");
 const KafkaService = require('./services/KafkaService');
 const RedisManager = require('./services/RedisManager');
 const Conversation = require("./models/Conversation");
+const WebRTCService = require('./webrtc');
 
 const EventEmitter = require("events");
 EventEmitter.defaultMaxListeners = 20; // Tăng giới hạn lên 20 listener
@@ -668,6 +669,9 @@ const setupWebSocket = (io) => {
     console.log(
       `User connected: ${userId}, socket ID: ${socket.id}, device: ${deviceId}`
     );
+
+    // Khởi tạo WebRTC handlers - không cần truyền io nữa
+    WebRTCService.initializeWebRTCHandlers(socket);
 
     // Lưu thông tin socket và device vào Redis
     await RedisManager.addUserSocket(userId, socket.id, deviceId);
