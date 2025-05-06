@@ -264,6 +264,12 @@ class ConversationService {
         unreadCount: userParticipant?.unreadCount || 0,
         isMuted: userParticipant?.isMuted || false,
         isArchived: userParticipant?.isArchived || false,
+        participants: conversation.participants.map((p) => ({
+          userId: p.user._id,
+          username: p.user.username,
+          avatar: p.user.avatar,
+          status: p.user.status,
+        })),
       };
     });
 

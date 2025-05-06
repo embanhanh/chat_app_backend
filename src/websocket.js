@@ -670,8 +670,8 @@ const setupWebSocket = (io) => {
       `User connected: ${userId}, socket ID: ${socket.id}, device: ${deviceId}`
     );
 
-    // Khởi tạo WebRTC handlers - không cần truyền io nữa
-    WebRTCService.initializeWebRTCHandlers(socket);
+    // Khởi tạo WebRTC handlers với socket object
+    WebRTCService.initializeWebRTCHandlers(io, socket);
 
     // Lưu thông tin socket và device vào Redis
     await RedisManager.addUserSocket(userId, socket.id, deviceId);

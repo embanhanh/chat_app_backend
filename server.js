@@ -8,6 +8,7 @@ const mongoose = require('mongoose');
 const WebRTCService = require('./src/webrtc');
 const User = require('./src/models/User');
 const cors = require('cors');
+const conversationRoutes = require('./src/routes/conversations');
 
 const app = express();
 app.use(express.json());
@@ -45,6 +46,23 @@ const io = new Server(server, {
 
 // Secret key cho JWT (trong thực tế nên đặt trong .env)
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Middleware xác thực
+const auth = (req, res, next) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ message: 'Không tìm thấy token' });
+        }
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        res.status(401).json({ message: 'Token không hợp lệ' });
+    }
+};
+
+
 
 // Hàm tạo token test
 function generateTestToken(userId) {
@@ -176,7 +194,7 @@ io.on('connection', (socket) => {
     socket.join(`user:${socket.userId}`);
     console.log(`User ${socket.username} joined room user:${socket.userId}`);
 
-    // Khởi tạo WebRTC handlers
+    // Khởi tạo WebRTC handlers với io instance
     WebRTCService.initializeWebRTCHandlers(io, socket);
 
     socket.on('disconnect', () => {

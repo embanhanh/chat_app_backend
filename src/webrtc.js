@@ -2,6 +2,9 @@ const WebRTCService = {
   // Lưu trữ các kết nối WebRTC đang hoạt động
   activeConnections: new Map(),
 
+  // Import Conversation model
+  Conversation: require('./models/Conversation'),
+
   // Cấu hình ICE servers (STUN/TURN)
   iceServers: {
     iceServers: [
@@ -14,89 +17,98 @@ const WebRTCService = {
       // Thêm TURN server configuration ở đây
       {
         urls: process.env.TURN_SERVER_URL,
-        username: process.env.TURN_SERVER_USERNAME, 
+        username: process.env.TURN_SERVER_USERNAME,
         credential: process.env.TURN_SERVER_CREDENTIAL
       }
-    ] 
+    ]
   },
 
-  // Khởi tạo WebRTC handlers cho socket
-  initializeWebRTCHandlers(socket) {
-    console.log('Initializing WebRTC handlers for user:', socket.userId);
-    
-    // Xử lý khi user bắt đầu cuộc gọi
-    socket.on('call_user', async ({ targetUserId, type = 'video' }) => {
-        try {
-            console.log('📞 Call request:', {
-                from: socket.userId,
-                to: targetUserId,
-                type,
-                timestamp: new Date().toISOString()
-            });
-            
-            // Kiểm tra user có online không
-            const targetSocket = await this.getUserSocket(targetUserId);
-            console.log('🔍 Target socket check:', {
-                targetUserId,
-                isOnline: !!targetSocket,
-                targetSocketId: targetSocket?.id
-            });
+  // Khởi tạo WebRTC handlers
+  initializeWebRTCHandlers: function (io, socket) {
+    if (!socket) {
+      console.error("Socket is undefined in initializeWebRTCHandlers");
+      return;
+    }
 
-            if (!targetSocket) {
-                console.log('❌ Target user offline:', targetUserId);
-                socket.emit('call_error', {
-                    message: 'Người dùng không trực tuyến'
-                });
-                return;
-            }
+    console.log(`Initializing WebRTC handlers for user: ${socket.userId}`);
 
-            // Kiểm tra room của người nhận
-            const targetRooms = Array.from(await global.io.in(`user:${targetUserId}`).allSockets());
-            console.log('🚪 Target user rooms:', {
-                targetUserId,
-                rooms: targetRooms,
-                expectedRoom: `user:${targetUserId}`
-            });
+    // Xử lý sự kiện gọi người dùng
+    socket.on("call_user", async (data) => {
+      try {
+        console.log('📞 Call request:', {
+          from: socket.userId,
+          conversationId: data.conversationId,
+          type: data.type,
+          timestamp: new Date().toISOString()
+        });
 
-            // Gửi thông báo cuộc gọi đến người nhận
-            console.log('📨 Emitting incoming_call to:', `user:${targetUserId}`);
-            global.io.to(`user:${targetUserId}`).emit('incoming_call', {
-                from: socket.userId,
-                fromUsername: socket.username || socket.userId,
-                type
-            });
-
-            // Khởi tạo kết nối WebRTC
-            this.initializeWebRTCConnection(socket.userId, targetUserId);
-            console.log('✅ WebRTC connection initialized');
-
-        } catch (error) {
-            console.error('❌ Error in call_user:', error);
-            socket.emit('call_error', {
-                message: 'Không thể thực hiện cuộc gọi: ' + error.message
-            });
+        // Kiểm tra conversation
+        const conversation = await this.Conversation.findById(data.conversationId);
+        if (!conversation) {
+          throw new Error('Cuộc trò chuyện không tồn tại');
         }
+
+        // Kiểm tra user có trong conversation không
+        const isParticipant = conversation.participants.some(
+          p => p.user.toString() === socket.userId.toString()
+        );
+        if (!isParticipant) {
+          throw new Error('Bạn không phải thành viên của cuộc trò chuyện này');
+        }
+
+        // Lấy danh sách người tham gia (trừ người gọi)
+        const participants = conversation.participants
+          .filter(p => p.user.toString() !== socket.userId.toString())
+          .map(p => p.user.toString());
+
+        // Gửi thông báo cuộc gọi đến tất cả thành viên
+        for (const targetUserId of participants) {
+          const targetSocket = await this.getUserSocket(io, targetUserId);
+          if (targetSocket) {
+            console.log('📨 Emitting incoming_call to:', targetUserId);
+            targetSocket.emit('incoming_call', {
+              from: socket.userId,
+              fromUsername: socket.username || socket.userId,
+              type: data.type,
+              conversationId: data.conversationId
+            });
+          } else {
+            console.log(`⚠️ Cannot send call notification to user ${targetUserId}: User is offline`);
+          }
+        }
+
+        // Khởi tạo kết nối WebRTC cho từng người tham gia
+        participants.forEach(targetUserId => {
+          this.initializeWebRTCConnection(socket.userId, targetUserId);
+        });
+
+        console.log('✅ WebRTC connections initialized for all participants');
+      } catch (error) {
+        console.error('Error handling call request:', error);
+        socket.emit('call_error', {
+          message: error.message || 'Không thể thực hiện cuộc gọi'
+        });
+      }
     });
-      
 
     // Xử lý khi user trả lời cuộc gọi
-    socket.on('call_response', ({ targetUserId, accepted }) => {
+    socket.on('call_response', ({ targetUserId, accepted, reason }) => {
       try {
         console.log(`User ${socket.userId} ${accepted ? 'accepted' : 'rejected'} call from ${targetUserId}`);
-        
+
         if (accepted) {
           // Thông báo chấp nhận cuộc gọi
-          global.io.to(`user:${targetUserId}`).emit('call_accepted', {
+          io.to(`user:${targetUserId}`).emit('call_accepted', {
             from: socket.userId,
             username: socket.username
           });
         } else {
           // Thông báo từ chối cuộc gọi
-          global.io.to(`user:${targetUserId}`).emit('call_rejected', {
-            from: socket.userId
+          io.to(`user:${targetUserId}`).emit('call_rejected', {
+            from: socket.userId,
+            reason
           });
         }
-
       } catch (error) {
         console.error('Error in call_response:', error);
         socket.emit('call_error', {
@@ -106,40 +118,79 @@ const WebRTCService = {
     });
 
     // Xử lý trao đổi SDP
-    socket.on('offer', ({ offer, targetUserId }) => {
+    socket.on('offer', async (data) => {
       try {
-        console.log(`Sending offer from ${socket.userId} to ${targetUserId}`);
-        global.io.to(`user:${targetUserId}`).emit('offer', {
-          offer,
+        console.log(`Sending offer from ${socket.userId} to ${data.targetUserId}`);
+        const targetSocket = await this.getUserSocket(io, data.targetUserId);
+        
+        if (!targetSocket || !targetSocket.connected) {
+          console.log(`⚠️ Cannot send offer to user ${data.targetUserId}: User is offline or socket invalid`);
+          socket.emit('call_error', {
+            message: 'Người dùng không trực tuyến'
+          });
+          return;
+        }
+
+        targetSocket.emit('offer', {
+          offer: data.offer,
           from: socket.userId
         });
       } catch (error) {
         console.error('Error in handling offer:', error);
+        socket.emit('call_error', {
+          message: 'Lỗi xử lý offer: ' + error.message
+        });
       }
     });
 
-    socket.on('answer', ({ answer, targetUserId }) => {
+    socket.on('answer', async ({ answer, targetUserId }) => {
       try {
         console.log(`Sending answer from ${socket.userId} to ${targetUserId}`);
-        global.io.to(`user:${targetUserId}`).emit('answer', {
+        const targetSocket = await this.getUserSocket(io, targetUserId);
+        
+        if (!targetSocket || !targetSocket.connected) {
+          console.log(`⚠️ Cannot send answer to user ${targetUserId}: User is offline or socket invalid`);
+          socket.emit('call_error', {
+            message: 'Người dùng không trực tuyến'
+          });
+          return;
+        }
+
+        targetSocket.emit('answer', {
           answer,
           from: socket.userId
         });
       } catch (error) {
         console.error('Error in handling answer:', error);
+        socket.emit('call_error', {
+          message: 'Lỗi xử lý answer: ' + error.message
+        });
       }
     });
 
     // Xử lý trao đổi ICE candidates
-    socket.on('ice_candidate', ({ candidate, targetUserId }) => {
+    socket.on('ice_candidate', async ({ candidate, targetUserId }) => {
       try {
         console.log(`Sending ICE candidate from ${socket.userId} to ${targetUserId}`);
-        global.io.to(`user:${targetUserId}`).emit('ice_candidate', {
+        const targetSocket = await this.getUserSocket(io, targetUserId);
+        
+        if (!targetSocket || !targetSocket.connected) {
+          console.log(`⚠️ Cannot send ICE candidate to user ${targetUserId}: User is offline or socket invalid`);
+          socket.emit('call_error', {
+            message: 'Người dùng không trực tuyến'
+          });
+          return;
+        }
+
+        targetSocket.emit('ice_candidate', {
           candidate,
           from: socket.userId
         });
       } catch (error) {
         console.error('Error in handling ICE candidate:', error);
+        socket.emit('call_error', {
+          message: 'Lỗi xử lý ICE candidate: ' + error.message
+        });
       }
     });
 
@@ -147,14 +198,17 @@ const WebRTCService = {
     socket.on('end_call', ({ targetUserId }) => {
       try {
         console.log(`Call ended by ${socket.userId} to ${targetUserId}`);
-        global.io.to(`user:${targetUserId}`).emit('call_ended', {
+        io.to(`user:${targetUserId}`).emit('call_ended', {
           from: socket.userId
         });
-        
+
         // Dọn dẹp kết nối
         this.cleanupConnection(socket.userId, targetUserId);
       } catch (error) {
         console.error('Error in ending call:', error);
+        socket.emit('call_error', {
+          message: 'Lỗi kết thúc cuộc gọi: ' + error.message
+        });
       }
     });
 
@@ -167,18 +221,29 @@ const WebRTCService = {
   },
 
   // Helper function để lấy socket của một user
-  async getUserSocket(userId) {
+  async getUserSocket(io, userId) {
     try {
-      const sockets = await global.io.in(`user:${userId}`).allSockets();
-      if (!sockets || sockets.size === 0) {
-        return false;
+      // Lấy tất cả sockets trong room của user
+      const sockets = await io.in(`user:${userId}`).fetchSockets();
+
+      if (!sockets || sockets.length === 0) {
+        console.log(`No active socket found for user ${userId}`);
+        return null;
       }
-      // Lấy socket đầu tiên của user
-      const socketId = Array.from(sockets)[0];
-      return global.io.sockets.sockets.get(socketId);
+
+      // Lấy socket đầu tiên và kiểm tra kết nối
+      const socket = sockets[0];
+      
+      if (!socket || typeof socket.emit !== 'function' || !socket.connected) {
+        console.error(`Invalid or disconnected socket for user ${userId}`);
+        return null;
+      }
+
+      console.log(`Found valid socket for user ${userId}`);
+      return socket;
     } catch (error) {
       console.error('Error getting user socket:', error);
-      return false;
+      return null;
     }
   },
 
@@ -215,4 +280,4 @@ const WebRTCService = {
   }
 };
 
-module.exports = WebRTCService; 
+module.exports = WebRTCService;
