@@ -198,8 +198,15 @@ const WebRTCService = {
     socket.on('end_call', ({ targetUserId }) => {
       try {
         console.log(`Call ended by ${socket.userId} to ${targetUserId}`);
-        io.to(`user:${targetUserId}`).emit('call_ended', {
-          from: socket.userId
+        
+        // Thông báo cho người được gọi
+        io.to(`user:${targetUserId}`).emit('participant_left', {
+          userId: socket.userId
+        });
+
+        // Thông báo cho người gọi
+        socket.emit('participant_left', {
+          userId: targetUserId
         });
 
         // Dọn dẹp kết nối
@@ -214,9 +221,66 @@ const WebRTCService = {
 
     // Xử lý ngắt kết nối
     socket.on('disconnect', () => {
-      console.log(`User disconnected: ${socket.userId}`);
-      // Dọn dẹp tất cả kết nối của user này
-      this.cleanupAllConnections(socket.userId);
+      try {
+        console.log(`User disconnected: ${socket.userId}`);
+        
+        // Thông báo cho tất cả các phòng mà user này đang tham gia
+        socket.rooms.forEach(room => {
+          if (room !== socket.id && room !== `user:${socket.userId}`) {
+            io.to(room).emit('participant_left', {
+              userId: socket.userId
+            });
+          }
+        });
+
+        // Dọn dẹp tất cả kết nối của user này
+        this.cleanupAllConnections(socket.userId);
+      } catch (error) {
+        console.error('Error handling disconnect:', error);
+      }
+    });
+
+    socket.on('notify_existing_participants', async ({ targetUserId, participants }) => {
+        try {
+            console.log('📢 Notifying new participant about existing participants:', {
+                targetUserId,
+                participants
+            });
+
+            const targetSocket = await this.getUserSocket(io, targetUserId);
+            if (targetSocket) {
+                targetSocket.emit('existing_participants', { participants });
+
+                // Thông báo cho tất cả người tham gia hiện có về người mới
+                participants.forEach(async (participantId) => {
+                    const participantSocket = await this.getUserSocket(io, participantId);
+                    if (participantSocket) {
+                        participantSocket.emit('new_participant', { userId: targetUserId });
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Error notifying about existing participants:', error);
+        }
+    });
+
+    // Xử lý thay đổi trạng thái audio
+    socket.on('audio_state_changed', async (data) => {
+      try {
+        console.log(`Audio state changed for user ${socket.userId}:`, data);
+        
+        // Thông báo cho tất cả người tham gia trong cuộc gọi
+        socket.rooms.forEach(async (room) => {
+          if (room !== socket.id && room !== `user:${socket.userId}`) {
+            io.to(room).emit('audio_state_changed', {
+              userId: socket.userId,
+              isMuted: data.isMuted
+            });
+          }
+        });
+      } catch (error) {
+        console.error('Error handling audio state change:', error);
+      }
     });
   },
 
