@@ -1,0 +1,186 @@
+{
+  "testConfig": {
+    "serverUrl": "ws://localhost",
+    "conversationId": "6810a51046d0da178e288364",
+    "messagesPerClient": 10,
+    "delayBetweenMessagesMin": 1,
+    "delayBetweenMessagesMax": 4,
+    "sessionDuration": 80,
+    "stages": [
+      {
+        "duration": "30s",
+        "target": 10
+      },
+      {
+        "duration": "60s",
+        "target": 50
+      },
+      {
+        "duration": "30s",
+        "target": 100
+      },
+      {
+        "duration": "2m",
+        "target": 100
+      },
+      {
+        "duration": "30s",
+        "target": 0
+      }
+    ]
+  },
+  "performance": {
+    "totalSent": 1000,
+    "totalReceived": 1000,
+    "successRate": 100,
+    "duration": 270.847
+  },
+  "metrics": {
+    "message_latency": {
+      "count": 1000,
+      "avg": 490.816,
+      "min": 205,
+      "max": 5490,
+      "p95": 1104
+    },
+    "server_acknowledgement_counter_total": {
+      "count": 1000,
+      "avg": 1,
+      "min": 1,
+      "max": 1,
+      "p95": 1
+    },
+    "connection_errors_total": {
+      "count": 0,
+      "avg": 0,
+      "min": 0,
+      "max": 0,
+      "p95": 0
+    },
+    "connection_attempts_total": {
+      "count": 100,
+      "avg": 1,
+      "min": 1,
+      "max": 1,
+      "p95": 1
+    },
+    "message_send_attempts_total": {
+      "count": 1000,
+      "avg": 1,
+      "min": 1,
+      "max": 1,
+      "p95": 1
+    },
+    "message_echo_received_total": {
+      "count": 1000,
+      "avg": 1,
+      "min": 1,
+      "max": 1,
+      "p95": 1
+    },
+    "all_new_messages_received_total": {
+      "count": 1000,
+      "avg": 1,
+      "min": 1,
+      "max": 1,
+      "p95": 1
+    },
+    "message_processing_errors_total": {
+      "count": 0,
+      "avg": 0,
+      "min": 0,
+      "max": 0,
+      "p95": 0
+    },
+    "rate_echo_received_successfully": {
+      "count": 1000,
+      "avg": 1,
+      "min": 1,
+      "max": 1,
+      "p95": 1,
+      "rate": 1
+    },
+    "http_req_failed": {
+      "count": 0,
+      "avg": 0,
+      "min": 0,
+      "max": 0,
+      "p95": 0,
+      "rate": 0
+    },
+    "ws_connecting": {
+      "count": 100,
+      "avg": 84.77,
+      "min": 10,
+      "max": 310,
+      "p95": 206
+    }
+  },
+  "thresholds": {
+    "http_req_failed": {
+      "passed": true,
+      "checks": [
+        {
+          "expression": "rate<0.01",
+          "passed": true,
+          "actual": 0
+        }
+      ]
+    },
+    "ws_connecting": {
+      "passed": true,
+      "checks": [
+        {
+          "expression": "p(95)<2000",
+          "passed": true,
+          "actual": 206
+        }
+      ]
+    },
+    "message_latency": {
+      "passed": false,
+      "checks": [
+        {
+          "expression": "p(95)<1000",
+          "passed": false,
+          "actual": 1104
+        }
+      ]
+    },
+    "connection_errors_total": {
+      "passed": true,
+      "checks": [
+        {
+          "expression": "count<20",
+          "passed": true,
+          "actual": 0
+        }
+      ]
+    },
+    "message_processing_errors_total": {
+      "passed": true,
+      "checks": [
+        {
+          "expression": "count<20",
+          "passed": true,
+          "actual": 0
+        }
+      ]
+    },
+    "rate_echo_received_successfully": {
+      "passed": true,
+      "checks": [
+        {
+          "expression": "rate>0.95",
+          "passed": true,
+          "actual": 1
+        }
+      ]
+    }
+  },
+  "system": {
+    "avgCpuUsage": 21.453149054172588,
+    "avgMemUsage": 82.39493917011045
+  },
+  "timestamp": "2025-05-18T16:24:18.937Z"
+}

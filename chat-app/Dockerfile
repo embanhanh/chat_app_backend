@@ -1,5 +1,5 @@
 # Sử dụng hình ảnh Node.js chính thức
-FROM node:18.17.0-alpine
+FROM node:18-alpine
 
 # Thiết lập thư mục làm việc trong container
 WORKDIR /src

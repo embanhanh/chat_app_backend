@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster-config
+data:
+  REDIS_NODES: "redis-0.redis.default.svc.cluster.local redis-1.redis.default.svc.cluster.local redis-2.redis.default.svc.cluster.local redis-3.redis.default.svc.cluster.local redis-4.redis.default.svc.cluster.local redis-5.redis.default.svc.cluster.local"
+  REDIS_CLUSTER_REPLICAS: "1"
+  ALLOW_EMPTY_PASSWORD: "yes"  # Only for development, use proper secret management in production

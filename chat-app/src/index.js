@@ -49,6 +49,11 @@ app.get('/', (req, res) => {
   res.send('Hello world!');
 });
 
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "API Gateway is running" });
+});
+
 // Initialize all services and start server
 async function startServer() {
   try {
