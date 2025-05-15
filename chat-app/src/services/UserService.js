@@ -3,7 +3,7 @@ const User = require("../models/User");
 const Conversation = require("../models/Conversation");
 const jwt = require("jsonwebtoken");
 const { redisClient } = require("../config/redis");
-const redisManager = require("../services/RedisManager");
+const redisManager = require("./RedisManager");
 const sendEmail = require("../utils/sendEmail");
 
 class UserService {
