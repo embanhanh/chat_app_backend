@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-app-backend
+spec:
+  replicas: 1  # Starting replica count
+  selector:
+    matchLabels:
+      app: chat-app-backend
+  template:
+    metadata:
+      labels:
+        app: chat-app-backend
+    spec:
+      containers:
+      - name: chat-app-backend
+        image: chat-app-backend:latest
+        imagePullPolicy: Never  # Use local image
+        ports:
+        - containerPort: 5000
+        envFrom:
+        - configMapRef:
+            name: chat-app-config
+        - secretRef:
+            name: mongo-secret
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 15
+          periodSeconds: 10

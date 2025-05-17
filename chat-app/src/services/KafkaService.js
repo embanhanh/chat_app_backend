@@ -5,7 +5,7 @@ class KafkaService {
   constructor() {
     this.kafka = new Kafka({
       clientId: "chat-app",
-      brokers: ["kafka:29092"],
+      brokers: ["kafka:9092"],
       retry: {
         initialRetryTime: 1000,
         retries: 10,
