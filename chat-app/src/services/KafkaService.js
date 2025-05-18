@@ -164,14 +164,14 @@ class KafkaService {
         throw new Error("KafkaService not properly initialized");
       }
 
-      console.log("Preparing to send message to Kafka:", {
-        topic: this.topicName,
-        messageData: {
-          conversationId: messageData.conversationId,
-          messageId: messageData.message._id,
-          recipientIds: messageData.recipientIds,
-        },
-      });
+      // console.log("Preparing to send message to Kafka:", {
+      //   topic: this.topicName,
+      //   messageData: {
+      //     conversationId: messageData.conversationId,
+      //     messageId: messageData.message._id,
+      //     recipientIds: messageData.recipientIds,
+      //   },
+      // });
 
       // Send message once through Kafka
       const result = await this.producer.send({
@@ -220,22 +220,20 @@ class KafkaService {
         throw new Error("Invalid message data received from Kafka");
       }
 
-      console.log("Processing Kafka message:", {
-        conversationId,
-        recipientIds,
-        messageId: message._id,
-        senderId: message.sender._id,
-        content: message.content,
-      });
+      // console.log("Processing Kafka message:", {
+      //   conversationId,
+      //   recipientIds,
+      //   messageId: message._id,
+      //   senderId: message.sender._id,
+      //   content: message.content,
+      // });
 
       // Emit to conversation room first
       this.io.to(`conversation:${conversationId}`).emit("new_message", {
         message,
         conversationId,
       });
-      console.log(
-        `Emitted to conversation room: conversation:${conversationId}`
-      );
+      // console.log(`Emitted to conversation room: conversation:${conversationId}`);
 
       // Get all participants including sender
       const allParticipants = [
@@ -246,10 +244,7 @@ class KafkaService {
       // Then emit to individual sockets
       for (const participantId of allParticipants) {
         const socketIds = await RedisManager.getUserSockets(participantId);
-        console.log(
-          `Found socket IDs for participant ${participantId}:`,
-          socketIds
-        );
+        // console.log(`Found socket IDs for participant ${participantId}:`, socketIds);
 
         if (socketIds && socketIds.length > 0) {
           socketIds.forEach((socketId) => {
@@ -258,9 +253,7 @@ class KafkaService {
                 message,
                 conversationId,
               });
-              console.log(
-                `Emitted to socket ${socketId} for user ${participantId}`
-              );
+              // console.log(`Emitted to socket ${socketId} for user ${participantId}`);
             }
           });
         } else {

@@ -30,6 +30,7 @@ kubectl apply -f chat-app-service.yaml
 
 # Áp dụng HPA cho Chat App
 kubectl apply -f chat-app-hpa.yaml
+kubectl apply -f api-gateway-hpa.yaml
 
 # Áp dụng API Gateway
 kubectl apply -f api-gateway-deployment.yaml

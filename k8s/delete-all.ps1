@@ -19,6 +19,7 @@ kubectl delete -f chat-app-service.yaml
 
 # Xóa HPA cho Chat App
 kubectl delete -f chat-app-hpa.yaml
+kubectl apply -f api-gateway-hpa.yaml
 
 # Xóa API Gateway
 kubectl delete -f api-gateway-deployment.yaml

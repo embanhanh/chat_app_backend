@@ -15,10 +15,10 @@ class MessageService {
     const conversation = await Conversation.findById(conversationId).populate(
       "participants.user"
     );
-    console.log("Found conversation:", {
-      id: conversation?._id,
-      participants: conversation?.participants?.length,
-    });
+    // console.log("Found conversation:", {
+    //   id: conversation?._id,
+    //   participants: conversation?.participants?.length,
+    // });
 
     if (!conversation) {
       throw { message: "Cuộc hội thoại không tồn tại" };
@@ -39,12 +39,12 @@ class MessageService {
       }
     }
 
-    console.log("Creating new message with data:", {
-      sender: senderId,
-      conversation: conversationId,
-      contentType: messageData.contentType,
-      content: messageData.content,
-    });
+    // console.log("Creating new message with data:", {
+    //   sender: senderId,
+    //   conversation: conversationId,
+    //   contentType: messageData.contentType,
+    //   content: messageData.content,
+    // });
 
     // Kiểm tra tin nhắn được trả lời nếu có
     if (messageData.replyTo) {
@@ -71,10 +71,10 @@ class MessageService {
     });
 
     message.save();
-    console.log("Message saved successfully:", {
-      messageId: message._id,
-      content: message.content,
-    });
+    // console.log("Message saved successfully:", {
+    //   messageId: message._id,
+    //   content: message.content,
+    // });
 
     // Update conversation's last message
     conversation.lastMessage = message._id;
@@ -103,11 +103,11 @@ class MessageService {
       .map((p) => p.user._id.toString())
       .filter((id) => id !== senderId);
 
-    console.log("Sending message through Kafka:", {
-      messageId: message._id,
-      conversationId: conversation._id.toString(),
-      recipientIds,
-    });
+    // console.log("Sending message through Kafka:", {
+    //   messageId: message._id,
+    //   conversationId: conversation._id.toString(),
+    //   recipientIds,
+    // });
 
     // Send message through Kafka to ensure cross-server delivery
     const KafkaService = require("./KafkaService");

@@ -1,0 +1,35 @@
+{
+    "name": "chat-stress-test",
+    "version": "1.0.0",
+    "description": "Chat App Stress Testing Tool",
+    "main": "src/index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/index.js",
+        "start:enhanced": "node src/indexEnhanced.js",
+        "benchmark": "node benchmark.js",
+        "benchmark:light": "powershell .\\run_benchmark.ps1 light",
+        "benchmark:moderate": "powershell .\\run_benchmark.ps1 moderate",
+        "benchmark:heavy": "powershell .\\run_benchmark.ps1 heavy",
+        "benchmark:spike": "powershell .\\run_benchmark.ps1 spike",
+        "benchmark:endurance": "powershell .\\run_benchmark.ps1 endurance",
+        "compare": "node compare.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [
+        "stress-test",
+        "websocket",
+        "socket.io",
+        "performance"
+    ],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "axios": "^1.6.2",
+        "chalk": "^5.3.0",
+        "commander": "^11.1.0",
+        "node-os-utils": "^1.3.7",
+        "socket.io-client": "^4.7.2",
+        "systeminformation": "^5.18.15"
+    }
+}

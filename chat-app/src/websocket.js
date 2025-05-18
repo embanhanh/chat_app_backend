@@ -854,7 +854,7 @@ const setupWebSocket = (io) => {
           messageData
         );
 
-        console.log("Message sent successfully:", message);
+        // console.log("Message sent successfully:", message);
 
         // Lấy danh sách người nhận từ conversation
         const conversation = await Conversation.findById(

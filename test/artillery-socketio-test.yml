@@ -1,0 +1,46 @@
+config:
+  target: "http://localhost" # URL server HTTP, Artillery sẽ tự nâng cấp lên WS
+  # socketio:
+  #   path: "/socket.io" # đường dẫn Socket.IO trên server
+  #   transports: ["websocket"] # chỉ dùng WebSocket :contentReference[oaicite:8]{index=8}
+  #   query:
+  #     token: "{{ token }}" # truyền token qua query :contentReference[oaicite:9]{index=9}
+  payload:
+    path: "tokens.csv" # chứa cột 'token' :contentReference[oaicite:10]{index=10}
+    fields: ["token"] # :contentReference[oaicite:11]{index=11}
+    order: sequence
+  phases:
+    - duration: "30" # 30 giây – hỗ trợ định dạng thời gian :contentReference[oaicite:12]{index=12}
+      arrivalRate: 1 # 10 VU/giây :contentReference[oaicite:13]{index=13}
+      maxVusers: 1
+
+scenarios:
+  - name: "WebSocket Stress Test"
+    engine: "socketio"
+    socketio:
+      path: "/socket.io"
+      transports: ["websocket"]
+      query:
+        token: "{{ token }}"
+    flow:
+      # Tham gia cuộc trò chuyện với payload đúng định dạng
+      - emit:
+          channel: "join_conversation"
+          data:
+            data:
+              conversationId: "6810a51046d0da178e288364"
+
+      - emit:
+          channel: "send_message"
+          data:
+            data:
+              conversationId: "6810a51046d0da178e288364"
+              content: "Msg {{ $loopCount }} từ client {{ $VU }}"
+          response:
+            channel: "message_sent"
+            data:
+              success: true
+              conversationId: "6810a51046d0da178e288364"
+
+      # Chờ trước khi ngắt kết nối
+      - think: 10

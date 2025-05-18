@@ -104,6 +104,16 @@ def main():
         with open("tokens_only.json", "w") as f:
             json.dump(tokens_only, f, indent=2)
         print(f"Token list saved to tokens_only.json")
+        
+        # Export to CSV for easy viewing in spreadsheet software
+        import csv
+        with open("tokens.csv", "w", newline="") as csvfile:
+            fieldnames = ["id", "username", "email", "token"]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for user in registered_users:
+                writer.writerow(user)
+        print(f"Token list saved to tokens.csv")
     else:
         print("No users were registered successfully")
 
