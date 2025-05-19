@@ -13,10 +13,10 @@ const config = {
     conversationId: '6810a51046d0da178e288364',
     messagesPerClient: 10,
     delayBetweenMessagesMin: 1,
-    delayBetweenMessagesMax: 3,
-    sessionDuration: 60,
+    delayBetweenMessagesMax: 4,
+    sessionDuration: 80,
     tokenFile: 'tokens_only.json',
-    maxConnectionAttempts: 3,
+    maxConnectionAttempts: 5,
     connectionRetryDelay: 5,
 
     // stages configuration

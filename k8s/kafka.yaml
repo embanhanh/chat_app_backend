@@ -32,3 +32,10 @@ spec:
           value: "CONTROLLER"
         - name: KAFKA_CFG_ADVERTISED_LISTENERS
           value: "PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2"

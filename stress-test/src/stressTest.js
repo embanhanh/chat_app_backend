@@ -294,8 +294,8 @@ export class StressTest {
             const sentMessagesInfo = new Map();
 
             // Join conversation
-            console.log(chalk.green(`VU ${vuIndex}: Joining conversation: ${this.conversationId}`));
-            socket.emit('join_conversation', { data: { conversationId: this.conversationId } });
+            // console.log(chalk.green(`VU ${vuIndex}: Joining conversation: ${this.conversationId}`));
+            // socket.emit('join_conversation', { data: { conversationId: this.conversationId } });
 
             // Set up message handling for the socket
             socket.on('new_message', (data) => {

@@ -15,7 +15,7 @@ services:
       - "6379:6379"
       - "16379:16379"
     volumes:
-      - ./data/redis1:/bitnami/redis/data   # <- bind-mount
+      - redis1:/bitnami/redis/data
     networks:
       - app-network
 
@@ -29,7 +29,7 @@ services:
       - REDIS_NODES=redis1 redis2 redis3 redis4 redis5 redis6
       - REDIS_CLUSTER_REPLICAS=1
     volumes:
-      - ./data/redis2:/bitnami/redis/data   # <- bind-mount
+      - redis2:/bitnami/redis/data
     networks:
       - app-network
 
@@ -42,7 +42,7 @@ services:
       - REDIS_NODES=redis1 redis2 redis3 redis4 redis5 redis6
       - REDIS_CLUSTER_REPLICAS=1
     volumes:
-      - ./data/redis3:/bitnami/redis/data   # <- bind-mount
+      - redis3:/bitnami/redis/data
     networks:
       - app-network
 
@@ -55,7 +55,7 @@ services:
       - REDIS_NODES=redis1 redis2 redis3 redis4 redis5 redis6
       - REDIS_CLUSTER_REPLICAS=1
     volumes:
-      - ./data/redis4:/bitnami/redis/data   # <- bind-mount
+      - redis4:/bitnami/redis/data
     networks:
       - app-network
 
@@ -68,7 +68,7 @@ services:
       - REDIS_NODES=redis1 redis2 redis3 redis4 redis5 redis6
       - REDIS_CLUSTER_REPLICAS=1
     volumes:
-      - ./data/redis5:/bitnami/redis/data   # <- bind-mount
+      - redis5:/bitnami/redis/data
     networks:
       - app-network
 
@@ -81,30 +81,13 @@ services:
       - REDIS_NODES=redis1 redis2 redis3 redis4 redis5 redis6
       - REDIS_CLUSTER_REPLICAS=1
     volumes:
-      - ./data/redis6:/bitnami/redis/data   # <- bind-mount
+      - redis6:/bitnami/redis/data
     networks:
       - app-network
-  
-  # -----------------------
-  # Kafka Services
-  # -----------------------
-  # zookeeper:
-  #   image: bitnami/zookeeper:latest
-  #   container_name: zookeeper
-  #   ports:
-  #     - "2181:2181"
-  #   environment:
-  #     - ALLOW_ANONYMOUS_LOGIN=yes
-  #   volumes:
-  #     - ./data/zookeeper:/bitnami/zookeeper   # <- bind-mount
-  #   networks:
-  #     - app-network
 
   kafka:
     image: bitnami/kafka:latest
     container_name: kafka
-    # depends_on:
-      # - zookeeper
     ports:
       - "9092:9092"
     environment:
@@ -141,9 +124,6 @@ services:
       - REDIS_HOST_6=redis6
       - REDIS_PORT_6=6379
       - MONGO_URI=mongodb+srv://22521430:Kkm52YAVXP6YptF@chatapp.o5z7l.mongodb.net/?retryWrites=true&w=majority&appName=chatapp
-    volumes:
-      - ./chat-app:/app
-      - /app/node_modules
     depends_on:
       - redis1
       - kafka
@@ -181,3 +161,11 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  redis1:
+  redis2:
+  redis3:
+  redis4:
+  redis5:
+  redis6:
