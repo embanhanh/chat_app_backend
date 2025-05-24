@@ -6,11 +6,19 @@ const admin = require("firebase-admin");
 class MessageService {
   // Send a new message
   static async sendMessage(senderId, conversationId, messageData) {
+    console.log("MessageService.sendMessage called with:", {
+      senderId,
+      conversationId,
+      messageData,
+    });
+
     const conversation = await Conversation.findById(conversationId).populate(
       "participants.user"
     );
-    console.log("Heloooooooooooo");
-    console.log(senderId, conversationId, messageData);
+    // console.log("Found conversation:", {
+    //   id: conversation?._id,
+    //   participants: conversation?.participants?.length,
+    // });
 
     if (!conversation) {
       throw { message: "Cuộc hội thoại không tồn tại" };
@@ -30,6 +38,13 @@ class MessageService {
         messageData.contentType = "text";
       }
     }
+
+    // console.log("Creating new message with data:", {
+    //   sender: senderId,
+    //   conversation: conversationId,
+    //   contentType: messageData.contentType,
+    //   content: messageData.content,
+    // });
 
     // Kiểm tra tin nhắn được trả lời nếu có
     if (messageData.replyTo) {
@@ -55,7 +70,11 @@ class MessageService {
       replyTo: messageData.replyTo || null,
     });
 
-    await message.save();
+    message.save();
+    // console.log("Message saved successfully:", {
+    //   messageId: message._id,
+    //   content: message.content,
+    // });
 
     // Update conversation's last message
     conversation.lastMessage = message._id;
@@ -73,22 +92,32 @@ class MessageService {
     });
 
     await conversation.save();
+    console.log("Conversation updated with new message");
 
     // Populate sender information before publishing
     await message.populate("sender", "username avatar _id");
+    console.log("Message populated with sender info");
 
     // Get recipient IDs (all participants except sender)
     const recipientIds = conversation.participants
-      .map(p => p.user._id.toString())
-      .filter(id => id !== senderId);
+      .map((p) => p.user._id.toString())
+      .filter((id) => id !== senderId);
+
+    // console.log("Sending message through Kafka:", {
+    //   messageId: message._id,
+    //   conversationId: conversation._id.toString(),
+    //   recipientIds,
+    // });
 
     // Send message through Kafka to ensure cross-server delivery
-    const KafkaService = require('./KafkaService');
+    const KafkaService = require("./KafkaService");
     await KafkaService.sendMessage({
       message,
       conversationId: conversation._id.toString(),
-      recipientIds
+      recipientIds,
     });
+
+    console.log("Message sent through Kafka successfully");
 
     // Prepare notification content
     let notificationContent = messageData.content || "";

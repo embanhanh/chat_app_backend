@@ -5,44 +5,61 @@ const Redis = require("ioredis");
 const redisCluster = new Redis.Cluster(
   [
     {
-      host: process.env.REDIS_HOST_1 || "redis1",
+      host:
+        process.env.REDIS_HOST_1 || "redis-cluster-0.redis-cluster-headless",
       port: Number(process.env.REDIS_PORT_1) || 6379,
     },
     {
-      host: process.env.REDIS_HOST_2 || "redis2",
+      host:
+        process.env.REDIS_HOST_2 || "redis-cluster-1.redis-cluster-headless",
       port: Number(process.env.REDIS_PORT_2) || 6379,
     },
     {
-      host: process.env.REDIS_HOST_3 || "redis3",
+      host:
+        process.env.REDIS_HOST_3 || "redis-cluster-2.redis-cluster-headless",
       port: Number(process.env.REDIS_PORT_3) || 6379,
     },
     {
-      host: process.env.REDIS_HOST_4 || "redis4",
+      host:
+        process.env.REDIS_HOST_4 || "redis-cluster-3.redis-cluster-headless",
       port: Number(process.env.REDIS_PORT_4) || 6379,
     },
     {
-      host: process.env.REDIS_HOST_5 || "redis5",
+      host:
+        process.env.REDIS_HOST_5 || "redis-cluster-4.redis-cluster-headless",
       port: Number(process.env.REDIS_PORT_5) || 6379,
     },
     {
-      host: process.env.REDIS_HOST_6 || "redis6",
+      host:
+        process.env.REDIS_HOST_6 || "redis-cluster-5.redis-cluster-headless",
       port: Number(process.env.REDIS_PORT_6) || 6379,
     },
   ],
   {
     redisOptions: {
       enableReadyCheck: true,
-      maxRetriesPerRequest: null,
+      maxRetriesPerRequest: 3,
       retryStrategy: function (times) {
-        const delay = Math.min(times * 50, 2000);
+        const delay = Math.min(times * 100, 3000);
         return delay;
       },
+      reconnectOnError: function (err) {
+        const targetError = "READONLY";
+        if (err.message.includes(targetError)) {
+          return true;
+        }
+        return false;
+      },
     },
-    scaleReads: "master",
+    scaleReads: "slave",
     enableOfflineQueue: true,
     showFriendlyErrorStack: true,
-    slotsRefreshTimeout: 10000,
+    slotsRefreshTimeout: 20000,
     dnsLookup: (address, callback) => callback(null, address),
+    clusterRetryStrategy: function (times) {
+      const delay = Math.min(times * 100, 3000);
+      return delay;
+    },
   }
 );
 

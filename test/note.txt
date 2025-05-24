@@ -1,0 +1,74 @@
+Received event: send_message [
+  {
+    data: {
+      conversationId: '6810a51046d0da178e288364',
+      content: '22222222222'
+    }
+  }
+]
+Send message event received: {
+  data: {
+    conversationId: '6810a51046d0da178e288364',
+    content: '22222222222'
+  }
+}
+Attempting to send message: {
+  userId: '6810a0bbc8013933cfee726e',
+  conversationId: '6810a51046d0da178e288364',
+  data: {
+    conversationId: '6810a51046d0da178e288364',
+    content: '22222222222'
+  }
+}
+MessageService.sendMessage called with: {
+  senderId: '6810a0bbc8013933cfee726e',
+  conversationId: '6810a51046d0da178e288364',
+  messageData: {
+    conversationId: '6810a51046d0da178e288364',
+    content: '22222222222'
+  }
+}
+Conversation updated with new message
+Message populated with sender info
+Message sent to Kafka successfully: { topic: 'chat-messages', partition: 0, offset: '2' }
+Message sent through Kafka successfully
+All participants: [ '6810a0a0c8013933cfee7266', '6810a0bbc8013933cfee726e' ]
+Message sent to Kafka successfully: { topic: 'chat-messages', partition: 0, offset: '3' }
+GET /health 200 0.336 ms - 35
+
+
+==========================
+
+Received event: send_message [
+  {
+    data: {
+      conversationId: '6810a51046d0da178e288364',
+      content: 'Msg undefined từ client undefined'
+    }
+  }
+]
+
+
+=====================================================================================================================================
+=====================================================================================================================================
+=====================================================================================================================================
+=====================================================================================================================================
+Received event: join_conversation [ { data: { conversationId: '6810a51046d0da178e288364' } } ]
+User 6810a0bbc8013933cfee726e joined conversation conversation:6810a51046d0da178e288364
+Socket rooms: Set(3) {
+  '1QCzDlG4If2z9vvhAAAB',
+  'user:6810a0bbc8013933cfee726e',
+  'conversation:6810a51046d0da178e288364'
+}
+
+==========================
+
+Received event: join_conversation [ { conversationId: '6810a51046d0da178e288364' } ]
+Received event: send_message [
+  {
+    data: {
+      conversationId: '6810a51046d0da178e288364',
+      content: 'Msg undefined từ client undefined'
+    }
+  }
+]
